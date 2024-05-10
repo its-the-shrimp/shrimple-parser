@@ -1,0 +1,18 @@
+[package]
+name = "shrimple-parsing"
+description = "Zero-dependency next-gen parsing combinator library with flexible error reporting"
+version = "0.0.1"
+edition = "2021"
+
+[lints.clippy]
+unit_arg = "allow"
+missing_const_for_fn = "warn"
+std_instead_of_core = "warn"
+alloc_instead_of_core = "warn"
+single_char_lifetime_names = "warn"
+deref_by_slicing = "warn"
+derive_partial_eq_without_eq = "warn"
+expect_used = "warn"
+unwrap_used = "warn"
+explicit_iter_loop = "warn"
+explicit_into_iter_loop = "warn"
