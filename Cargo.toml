@@ -3,6 +3,12 @@ name = "shrimple-parser"
 description = "Zero-dependency next-gen parsing combinator library with flexible error reporting"
 version = "0.0.1"
 edition = "2021"
+license = "MIT"
+authors = ["Tim Kurdov <tim.kurdov@gmail.com>"]
+repository = "https://github.com/schvv31n/shrimple-parser"
+# TODO: add no-std
+categories = ["parsing"]
+keywords = ["parsing-combinator"]
 
 [lints.clippy]
 unit_arg = "allow"
