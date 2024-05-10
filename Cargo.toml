@@ -1,5 +1,5 @@
 [package]
-name = "shrimple-parsing"
+name = "shrimple-parser"
 description = "Zero-dependency next-gen parsing combinator library with flexible error reporting"
 version = "0.0.1"
 edition = "2021"
