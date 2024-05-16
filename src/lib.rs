@@ -13,7 +13,7 @@
 //! constructing a [`FullParsingError`] with methods such as
 //! [`Parser::with_full_error`], [`ParsingError::with_src_loc`]
 
-#![cfg_attr(feature = "nightly", feature(unboxed_closures, tuple_trait, doc_cfg))]
+#![cfg_attr(feature = "nightly", feature(unboxed_closures, fn_traits, tuple_trait, doc_cfg))]
 
 pub mod tuple;
 pub mod utils;
@@ -161,6 +161,7 @@ pub trait Parser<'input, T = (), Reason = Infallible>:
 
     /// Like [`Parser::map`], but calls the provdied function using the Nightly [`FnOnce::call_once`]
     /// method, effectively spreading the output as the arguments of the function.
+    ///
     /// The following nIghtly Rust code:
     /// ```rs
     /// use shrimple_parser::Parser;
@@ -168,9 +169,14 @@ pub trait Parser<'input, T = (), Reason = Infallible>:
     /// ```
     /// is equivalent to the following stable Rust code:
     /// ```rs
-    /// use shrimple_parser::{Parser, call};
-    /// parser.map(call!(u32::pow(x, y)))
+    /// use shrimple_parser::Parser;
+    /// parser.map(|(x, y)| u32::pow(x, y))
     /// ```
+    /// `T` for this method is constrained not by the [`crate::Tuple`] trait, but by the unstable
+    /// standard trait [`core::marker::Tuple`], which means that `T` can be a tuple of absolutely
+    /// any length.
+    ///
+    /// See also: [`crate::call`], a macro for a stable alternative to this method.
     #[cfg(feature = "nightly")]
     #[doc(cfg(feature = "nightly"))]
     fn call<F>(self, f: F) -> impl Parser<'input, F::Output, Reason>
@@ -178,7 +184,7 @@ pub trait Parser<'input, T = (), Reason = Infallible>:
         F: FnOnce<T>,
         T: core::marker::Tuple,
     {
-        move |input| self(input).map(map_second(move |x| f.call(x)))
+        move |input| self(input).map(map_second(move |x| f.call_once(x)))
     }
 
     /// Replaces a recoverable error with the result of `parser`.
