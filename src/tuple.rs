@@ -337,11 +337,11 @@ macro_rules! impl_nth_fn {
             " element of a tuple with `f`."
         )]
         #[doc = "For a more generic function, see [`Tuple::map_nth`]"]
-        pub fn $map_name<T: Index<$n>, U>(f: impl FnOnce(T::Nth) -> U)
-            -> impl FnOnce(T)
+        pub fn $map_name<T: Index<$n>, U>(mut f: impl FnMut(T::Nth) -> U)
+            -> impl FnMut(T)
             -> T::NthMapped<U>
         {
-            move |tuple| Index::map_nth(tuple, f)
+            move |tuple| Index::map_nth(tuple, &mut f)
         }
     };
 }
@@ -382,16 +382,16 @@ pub fn copied<T: CopiableRefs>(x: T) -> T::Copied {
 /// The struct fields must be exactly in the order in which they're expected to be in the tuple.
 /// ```rust
 /// # fn main() {
-/// use shrimple_parser::{Parser, parse_until_exact, from_tuple};
+/// use shrimple_parser::{Parser, pattern::parse_until_ex, from_tuple};
 ///
 /// #[derive(Debug, PartialEq, Eq)]
 /// struct Example<'src> { a: &'src str, b: &'src str }
 ///
 /// let input = "abc|def|";
-/// let res = parse_until_exact("|")
-///     .and(parse_until_exact("|"))
+/// let res = parse_until_ex("|")
+///     .and(parse_until_ex("|"))
 ///     .map(from_tuple!(Example { a, b }))
-///     (input);
+///     .parse(input);
 /// assert_eq!(res, Ok(("", Example { a: "abc", b: "def" })))
 /// # }
 /// ```
@@ -403,7 +403,7 @@ macro_rules! from_tuple {
 #[macro_export]
 #[doc(hidden)]
 macro_rules! last {
-    ($last:tt $($rest:tt)+) => { $($rest)+ };
+    ($_:tt $($rest:tt)+) => { $($rest)+ };
     ($last:tt) => { $last };
 }
 
@@ -411,17 +411,17 @@ macro_rules! last {
 /// The input can be anything as long as the last token contains all the arguments parenthesized.
 /// ```rust
 /// # fn main() {
-/// use shrimple_parser::{Parser, parse_until_exact, call};
+/// use shrimple_parser::{Parser, pattern::parse_until_ex, call};
 ///
 /// fn len_sum(a: &str, b: &str) -> usize {
 ///     a.len() + b.len()
 /// }
 ///
 /// let input = "abc|def|";
-/// let res = parse_until_exact("|")
-///     .and(parse_until_exact("|"))
+/// let res = parse_until_ex("|")
+///     .and(parse_until_ex("|"))
 ///     .map(call!(len_sum(a, b)))
-///     (input);
+///     .parse(input);
 /// assert_eq!(res, Ok(("", 6)))
 /// # }
 /// ```
