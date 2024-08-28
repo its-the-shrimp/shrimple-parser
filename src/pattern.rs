@@ -388,6 +388,33 @@ impl<Prefix: Pattern, Inner: Pattern> Pattern for NotEscaped<Prefix, Inner> {
     }
 }
 
+/// A pattern that matches anything.
+pub struct AnyChar;
+
+impl Pattern for AnyChar {
+    fn immediate_match<I: Input>(&self, input: I) -> Result<(I, I), I> {
+        match input.chars().next() {
+            Some(ch) => Ok(input.split_at(ch.len_utf8()).rev()),
+            None => Err(input)
+        }
+    }
+
+    fn trailing_match<I: Input>(&self, input: I) -> Result<(I, I), I> {
+        match input.chars().next_back() {
+            Some(ch) => Ok(input.split_at(ch.len_utf8())),
+            None => Err(input),
+        }
+    }
+
+    fn first_match<I: Input>(&self, input: I) -> Result<(I, (I, I)), I> {
+        Ok((input.clone(), (I::default(), input)))
+    }
+
+    fn first_match_ex<I: Input>(&self, input: I) -> Result<(I, (I, I)), I> {
+        Ok((I::default(), (I::default(), input)))
+    }
+}
+
 /// Parses 1 instance of pattern `pat`.
 ///
 /// # Errors
