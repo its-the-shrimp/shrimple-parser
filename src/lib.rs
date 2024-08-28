@@ -31,6 +31,7 @@ use core::{
     iter::FusedIterator,
     marker::PhantomData,
     ops::Not,
+    mem::take,
 };
 use tuple::{first, map_second, tuple, Tuple};
 use utils::{locate_saturating, FullLocation, PathLike};
@@ -234,6 +235,20 @@ pub trait Parser<In: Input, Out, Reason = Infallible>:
         move |src| self(src).map(map_second(&mut f))
     }
 
+    /// Tranforms the output of the parser, if present, or try parsing the next value.
+    fn maybe_map<NewOut>(mut self, mut f: impl FnMut(Out) -> Option<NewOut>)
+        -> impl Parser<In, NewOut, Reason>
+    {
+        move |mut src| loop {
+            let (rest, value) = self(take(&mut src)).map(map_second(&mut f))?;
+            src = rest;
+            let Some(value) = value else {
+                continue;
+            };
+            return Ok((src, value));
+        }
+    }
+
     /// Like [`Parser::map`], but calls the provdied function using the Nightly [`FnMut::call_mut`]
     /// method, effectively spreading the output as the arguments of the function.
     ///
@@ -306,6 +321,8 @@ pub trait Parser<In: Input, Out, Reason = Infallible>:
     /// Replaces a recoverable error with `value` & the rest of the input in the recoverable error.
     ///
     /// Be aware that `value` will be cloned every time it's to be returned.
+    ///
+    /// See [`Parser::or`], [`Parser::or_nonempty`], [`Parser::or_map_rest`].
     fn or_value(mut self, value: Out) -> impl Parser<In, Out, Reason> where Out: Clone {
         move |src| match self(src) {
             Ok(res) => Ok(res),
@@ -319,29 +336,53 @@ pub trait Parser<In: Input, Out, Reason = Infallible>:
     ///
     /// The reason for the errors of the first parser is adapted to the one of the second parser.
     ///
-    /// See also [`Parser::add`].
+    /// See also [`Parser::add`], [`Parser::and_value`].
     fn and<Other>(mut self, mut parser: impl Parser<In, Other, Reason>)
         -> impl Parser<In, (Out, Other), Reason>
     {
         move |src| {
-            let (rest, out) = self(src).map_err(|e| e.map_reason(Into::into))?;
+            let (rest, out) = self(src)?;
             let (rest, new_out) = parser(rest)?;
             Ok((rest, (out, new_out)))
         }
     }
 
+    /// Adds a value to the output of the parser
+    ///
+    /// Be aware that `value` will be cloned every time it's to be returned.
+    ///
+    /// See [`Parser::and`].
+    fn and_value<Other: Clone>(mut self, value: Other) -> impl Parser<In, (Out, Other), Reason> {
+        move |src| {
+            let (rest, out) = self(src)?;
+            Ok((rest, (out, value.clone())))
+        }
+    }
+
     /// Like [`Parser::and`], but specific to parsers that output a tuple:
     /// the new output is appended to the tuple of other tuples using the [`Tuple`] trait.
-    /// The reason for the errors of the first parser is adapted to the one of the second parser.
     fn add<New>(mut self, mut parser: impl Parser<In, New, Reason>)
         -> impl Parser<In, Out::Appended<New>, Reason>
     where
         Out: Tuple,
     {
         move |src| {
-            let (rest, out) = self(src).map_err(|e| e.map_reason(Into::into))?;
+            let (rest, out) = self(src)?;
             let (rest, new_out) = parser(rest)?;
             Ok((rest, out.append(new_out)))
+        }
+    }
+
+    /// Like [`Parser::and_value`], but specific to parsers that output a tuple:
+    /// the new output is appended to the tuple of other tuples using the [`Tuple`] trait.
+    fn add_value<Other: Clone>(mut self, value: Other)
+        -> impl Parser<In, Out::Appended<Other>, Reason>
+    where
+        Out: Tuple,
+    {
+        move |src| {
+            let (rest, out) = self(src)?;
+            Ok((rest, out.append(value.clone())))
         }
     }
 
@@ -351,7 +392,7 @@ pub trait Parser<In: Input, Out, Reason = Infallible>:
         -> impl Parser<In, NewOut, Reason>
     {
         move |src| {
-            let rest = self(src).map_err(|e| e.map_reason(Into::into))?.0;
+            let rest = self(src)?.0;
             let (rest, out) = parser(rest)?;
             Ok((rest, out))
         }
@@ -363,7 +404,7 @@ pub trait Parser<In: Input, Out, Reason = Infallible>:
         -> impl Parser<In, Out, Reason>
     {
         move |src| {
-            let (rest, out) = self(src).map_err(|e| e.map_reason(Into::into))?;
+            let (rest, out) = self(src)?;
             let rest = parser(rest)?.0;
             Ok((rest, out))
         }
