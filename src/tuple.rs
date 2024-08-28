@@ -351,13 +351,13 @@ impl_nth_fn!(1, second, second_ref, map_second);
 impl_nth_fn!(2, third, third_ref, map_third);
 
 /// Adds `new_element` to the end of a tuple and returns the resulting new tuple.
-pub fn append<T: Tuple, U>(new_element: U) -> impl FnOnce(T) -> T::Appended<U> {
-    move |tuple| tuple.append(new_element)
+pub fn append<T: Tuple, U: Clone>(new_element: U) -> impl Fn(T) -> T::Appended<U> {
+    move |tuple| tuple.append(new_element.clone())
 }
 
 /// Adds `new_element` to the beginning of a tuple and returns the resulting new tuple.
-pub fn prepend<U, T: Tuple>(new_element: U) -> impl FnOnce(T) -> T::Prepended<U> {
-    move |tuple| tuple.prepend(new_element)
+pub fn prepend<U: Clone, T: Tuple>(new_element: U) -> impl Fn(T) -> T::Prepended<U> {
+    move |tuple| tuple.prepend(new_element.clone())
 }
 
 /// Turns `T` into a tuple with 1 element, `T`
