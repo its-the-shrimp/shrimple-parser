@@ -33,7 +33,7 @@ use core::{
     ops::Not,
     mem::take,
 };
-use tuple::{first, map_second, tuple, Tuple};
+use tuple::{map_second, tuple, Tuple};
 use utils::{locate_saturating, FullLocation, PathLike};
 #[cfg(feature = "std")]
 use utils::WithSourceLine;
@@ -236,7 +236,7 @@ pub trait Parser<In: Input, Out, Reason = Infallible>:
     }
 
     /// Tranforms the output of the parser, if present, or try parsing the next value.
-    fn maybe_map<NewOut>(mut self, mut f: impl FnMut(Out) -> Option<NewOut>)
+    fn map_until<NewOut>(mut self, mut f: impl FnMut(Out) -> Option<NewOut>)
         -> impl Parser<In, NewOut, Reason>
     {
         move |mut src| loop {
@@ -398,28 +398,20 @@ pub trait Parser<In: Input, Out, Reason = Infallible>:
         }
     }
 
-    /// Same as [`Parser::and`] but discards the output of the second parser
-    /// The reason for the errors the first parser is adapted to the one of the second parser.
+    /// Same as [`Parser::and`] but discards the output and the recoverable error of the second parser.
+    /// 
+    /// Effectively, all this function does is advance the input to right after the second parser,
+    /// if it succeeds, otherwise the input stays as if only the first parser was called.
     fn skip<Skipped>(mut self, mut parser: impl Parser<In, Skipped, Reason>)
         -> impl Parser<In, Out, Reason>
     {
         move |src| {
             let (rest, out) = self(src)?;
-            let rest = parser(rest)?.0;
-            Ok((rest, out))
-        }
-    }
-
-    /// Same as [`Parser::skip`] but discards the error of the second parser as well.
-    ///
-    /// Effectively, all this function does is advance the input to right after the second parser,
-    /// if it succeeds, otherwise the input stays as if only the first parser was called.
-    fn maybe_skip<Skipped, OtherReason>(mut self, mut parser: impl Parser<In, Skipped, OtherReason>)
-        -> impl Parser<In, Out, Reason>
-    {
-        move |src| {
-            let (rest, out) = self(src)?;
-            let rest = parser(rest).map_or_else(|err| err.rest, first);
+            let rest = match parser(rest) {
+                Ok((rest, _)) => rest,
+                Err(err) if err.is_recoverable() => err.rest,
+                Err(err) => return Err(err),
+            };
             Ok((rest, out))
         }
     }
@@ -524,10 +516,17 @@ pub trait Parser<In: Input, Out, Reason = Infallible>:
         In: Input,
         Out: Debug,
     {
-        move |src| {
-            let (rest, out) = self(src)?;
-            println!("{label}: {out:?} : {}...", &rest[.. min(rest.len(), 16)].escape_debug());
-            Ok((rest, out))
+        move |src| match self(src) {
+            Ok((rest, out)) => {
+                let r = &rest[.. min(rest.len(), 16)].escape_debug();
+                println!("{label}: Ok({out:?}) : {r}...");
+                Ok((rest, out))
+            }
+            Err(err) => {
+                let r = &err.rest[.. min(err.rest.len(), 16)].escape_debug();
+                println!("{label}: Err : {r}...");
+                Err(err)
+            }
         }
     }
 
