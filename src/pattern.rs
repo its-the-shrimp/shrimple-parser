@@ -483,6 +483,7 @@ pub fn parse_group<In: Input>(
     move |input| {
         let (open, close) = (open.by_ref(), close.by_ref());
         let (mut rest, _) = parse(open).map_reason(|x| match x {})(input.clone())?;
+        let after_1st_open = rest.clone();
         let mut depth = 0usize;
         loop {
             let mut group;
@@ -501,7 +502,8 @@ pub fn parse_group<In: Input>(
                 };
             };
             if depth == 0 {
-                break Ok((rest, group));
+                let len = group.as_ptr() as usize + group.len() - after_1st_open.as_ptr() as usize;
+                break Ok((rest, after_1st_open.before(len)));
             }
             depth -= 1;
         }

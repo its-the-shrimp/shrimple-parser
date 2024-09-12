@@ -168,12 +168,12 @@ pub fn locate_in_multiple<K>(
 }
 
 /// Effectively an alias to `move |y| &x == y`.
-pub fn eq<T: Eq>(x: T) -> impl Fn(&T) -> bool {
+pub fn eq<T: PartialEq<Other>, Other>(x: T) -> impl Fn(&Other) -> bool {
     move |y| &x == y
 }
 
 /// Effectively an alias to `move |y| &x != y`.
-pub fn ne<T: Eq>(x: T) -> impl Fn(&T) -> bool {
+pub fn ne<T: PartialEq<Other>, Other>(x: T) -> impl Fn(&Other) -> bool {
     move |y| &x != y
 }
 
