@@ -119,14 +119,6 @@ impl<In, Reason> ParsingError<In, Reason> {
         ParsingError { reason: self.reason.map(f), rest: self.rest }
     }
 
-    /// Changes the reason associated with error, except if it's a recoverable error,
-    /// in which case it remains recoverable.
-    pub fn narrow_reason<NewReason>(self, expected: NewReason)
-        -> ParsingError<In, NewReason>
-    {
-        ParsingError { reason: self.reason.map(|_| expected), rest: self.rest }
-    }
-
     /// Turns this error into a [`FullParsingError`] for more informative error report.
     pub fn with_src_loc<'path>(self, path: impl PathLike<'path>, input: &str)
         -> FullParsingError<'path, Reason>
@@ -228,6 +220,13 @@ pub trait Parser<In: Input, Out, Reason = Infallible>:
             Ok(_) => Err(ParsingError::new(src, reason.clone())),
             Err(err) => Err(err),
         }
+    }
+
+    /// Changes the error reason by passing it through `f`.
+    fn map_reason<NewReason>(mut self, mut f: impl FnMut(Reason) -> NewReason)
+        -> impl Parser<In, Out, NewReason>
+    {
+        move |src| self(src).map_err(|e| e.map_reason(&mut f))
     }
 
     /// Transforms the output of the parser, if present.
@@ -440,13 +439,6 @@ pub trait Parser<In: Input, Out, Reason = Infallible>:
         Reason: Clone,
     {
         move |src| self(src).map_err(|e| e.or_reason_if_nonempty(reason.clone()))
-    }
-
-    /// Changes the reason from the parser, unless the error is recoverable.
-    fn narrow_reason<NewReason: Clone>(mut self, expected: NewReason)
-        -> impl Parser<In, Out, NewReason>
-    {
-        move |src| self(src).map_err(|e| e.narrow_reason(expected.clone()))
     }
 
     /// Adds the part of the input that was consumed by the parser to the outputs.

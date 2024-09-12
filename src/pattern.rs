@@ -482,7 +482,7 @@ pub fn parse_group<In: Input>(
 ) -> impl Parser<In, In, ()> {
     move |input| {
         let (open, close) = (open.by_ref(), close.by_ref());
-        let (mut rest, _) = parse(open)(input.clone()).map_err(|e| e.narrow_reason(()))?;
+        let (mut rest, _) = parse(open).map_reason(|x| match x {})(input.clone())?;
         let mut depth = 0usize;
         loop {
             let mut group;
