@@ -24,7 +24,6 @@ mod input;
 pub use input::Input;
 
 use core::{
-    cmp::min,
     convert::Infallible,
     error::Error,
     fmt::{Debug, Display, Formatter},
@@ -282,13 +281,15 @@ pub trait Parser<In: Input, Out, Reason = Infallible>:
     /// # Warning
     /// Do not use this in combination with [`Parser::iter`]; Use [`Parser::or_nonempty`]
     fn or(mut self, mut parser: impl Parser<In, Out, Reason>) -> impl Parser<In, Out, Reason> {
-        move |src| match self(src) {
-            Ok(res) => Ok(res),
-            Err(err) if err.is_recoverable() => parser(err.rest),
-            Err(err) => Err(err),
+        move |src| {
+            let fallback = src.clone();
+            match self(src) {
+                Ok(res) => Ok(res),
+                Err(err) if err.is_recoverable() => parser(fallback),
+                Err(err) => Err(err),
+            }
         }
     }
-
 
     /// Like [`Parser::or`], but keeps the error if the rest of the input is empty.
     /// 
@@ -297,10 +298,13 @@ pub trait Parser<In: Input, Out, Reason = Infallible>:
     fn or_nonempty(mut self, mut parser: impl Parser<In, Out, Reason>)
         -> impl Parser<In, Out, Reason>
     {
-        move |input| match self(input) {
-            Ok(res) => Ok(res),
-            Err(err) if err.is_recoverable() && !err.rest.is_empty() => parser(err.rest),
-            Err(err) => Err(err),
+        move |src| {
+            let fallback = src.clone();
+            match self(src) {
+                Ok(res) => Ok(res),
+                Err(err) if err.is_recoverable() && !err.rest.is_empty() => parser(fallback),
+                Err(err) => Err(err),
+            }
         }
     }
 
@@ -308,12 +312,15 @@ pub trait Parser<In: Input, Out, Reason = Infallible>:
     /// If the rest of the input in the recoverable error is already empty, does nothing.
     /// The returned remains of the input are an empty string.
     fn or_map_rest(mut self, mut f: impl FnMut(In) -> Out) -> impl Parser<In, Out, Reason> {
-        move |src| match self(src) {
-            Ok(res) => Ok(res),
-            Err(err) if err.is_recoverable() && !err.rest.is_empty() => {
-                Ok((In::default(), f(err.rest)))
+        move |src| {
+            let fallback = src.clone();
+            match self(src) {
+                Ok(res) => Ok(res),
+                Err(err) if err.is_recoverable() && !err.rest.is_empty() => {
+                    Ok((In::default(), f(fallback)))
+                }
+                Err(err) => Err(err),
             }
-            Err(err) => Err(err),
         }
     }
 
@@ -323,10 +330,13 @@ pub trait Parser<In: Input, Out, Reason = Infallible>:
     ///
     /// See [`Parser::or`], [`Parser::or_nonempty`], [`Parser::or_map_rest`].
     fn or_value(mut self, value: Out) -> impl Parser<In, Out, Reason> where Out: Clone {
-        move |src| match self(src) {
-            Ok(res) => Ok(res),
-            Err(err) if err.is_recoverable() => Ok((err.rest, value.clone())),
-            Err(err) => Err(err),
+        move |src| {
+            let fallback = src.clone();
+            match self(src) {
+                Ok(res) => Ok(res),
+                Err(err) if err.is_recoverable() => Ok((fallback, value.clone())),
+                Err(err) => Err(err),
+            }
         }
     }
 
@@ -507,16 +517,19 @@ pub trait Parser<In: Input, Out, Reason = Infallible>:
     where
         In: Input,
         Out: Debug,
+        Reason: Debug,
     {
         move |src| match self(src) {
             Ok((rest, out)) => {
-                let r = &rest[.. min(rest.len(), 16)].escape_debug();
+                let until = rest.char_indices().nth(16).map_or(rest.len(), |x| x.0);
+                let r = &rest[.. until].escape_debug();
                 println!("{label}: Ok({out:?}) : {r}...");
                 Ok((rest, out))
             }
             Err(err) => {
-                let r = &err.rest[.. min(err.rest.len(), 16)].escape_debug();
-                println!("{label}: Err : {r}...");
+                let until = err.rest.char_indices().nth(16).map_or(err.rest.len(), |x| x.0);
+                let r = &err.rest[.. until].escape_debug();
+                println!("{label}: Err({:?}) : {r}...", err.reason);
                 Err(err)
             }
         }
