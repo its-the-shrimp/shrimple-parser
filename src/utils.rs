@@ -72,7 +72,9 @@ impl Display for FullLocation<'_> {
     fn fmt(&self, f: &mut Formatter) -> core::fmt::Result {
         for chunk in self.path.utf8_chunks() {
             f.write_str(chunk.valid())?;
-            f.write_char(REPLACEMENT_CHARACTER)?;
+            if !chunk.invalid().is_empty() {
+                f.write_char(REPLACEMENT_CHARACTER)?;
+            }
         }
         write!(f, ":{}", self.loc)
     }
@@ -105,7 +107,7 @@ impl Display for WithSourceLine<&FullLocation<'_>> {
         let line_col_off = self.0.loc.line.ilog10() as usize + 1;
         writeln!(f, "{:line_col_off$} |",        "")?;
         writeln!(f, "{:line_col_off$} | {line}", self.0.loc.line)?;
-        write  !(f, "{:line_col_off$} | {:>2$}", "", '^', self.0.loc.col as usize)?;
+        write  !(f, "{:line_col_off$} | {:>2$}", "", '^', self.0.loc.col as usize + 1)?;
         Ok(())
     }
 }
@@ -264,6 +266,7 @@ impl_path_like! {
 }
 
 /// Make a parser that tries any of the provided paths.
+///
 /// If the last expression is prefixed with `else: `, it will be applied as a
 /// [`crate::Parser::or_map_rest`] instead of [`crate::Parser::or`]
 /// Right now it's merely syntactic sugar, but it might bring performance benefits in the future,

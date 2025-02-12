@@ -8,6 +8,7 @@
 //! See the [`Tuple`] trait or the free-standing functions.
 
 /// The trait for a tuple that has the N-th element, the backbone of the [`Tuple::nth`] function.
+///
 /// The associated functions are not to be used directly, instead use the equivalent functions
 /// or methods of the [`Tuple`] trait.
 #[diagnostic::on_unimplemented(
@@ -30,8 +31,10 @@ pub trait Index<const N: usize>: Tuple {
     fn map_nth<U>(this: Self, f: impl FnOnce(Self::Nth) -> U) -> Self::NthMapped<U>;
 }
 
-/// The trait for a tuple that has at least N elements, the backbone of the
-/// [`Tuple::first_n`] function.
+/// The trait for a tuple that has at least N elements.
+///
+/// The backbone of the [`Tuple::first_n`] function.
+///
 /// The associated functions are not to be used directly, instead use the equivalent functions
 /// or methods of the [`Tuple`] trait.
 #[diagnostic::on_unimplemented(
@@ -56,8 +59,10 @@ pub trait Slice<const N: usize>: Tuple {
     fn split(this: Self) -> (Self::FirstN, Self::FirstNStripped);
 }
 
-/// The trait for a tuple, all elements of which are references to [`Clone`]-able values,
-/// the backbone of the [`Tuple::cloned`] function.
+/// The trait for a tuple, all elements of which are references to [`Clone`]-able values.
+///
+/// The backbone of the [`Tuple::cloned`] function.
+///
 /// The associated functions are not to be used directly, instead use the equivalent free-standing
 /// functions or methods of the [`Tuple`] trait.
 pub trait CloneableRefs: Tuple {
@@ -68,8 +73,10 @@ pub trait CloneableRefs: Tuple {
     fn cloned(this: Self) -> Self::Cloned;
 }
 
-/// The trait for a tuple, all elements of which are references to [`Copy`]-able values,
-/// the backbone of the [`Tuple::copied`] function.
+/// The trait for a tuple, all elements of which are references to [`Copy`]-able values.
+///
+/// The backbone of the [`Tuple::copied`] function.
+///
 /// The associated functions are not to be used directly, instead use the equivalent free-standing
 /// functions or methods of the [`Tuple`] trait.
 pub trait CopiableRefs: Tuple {
