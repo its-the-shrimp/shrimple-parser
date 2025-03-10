@@ -39,10 +39,10 @@ pub trait Index<const N: usize>: Tuple {
 /// or methods of the [`Tuple`] trait.
 #[diagnostic::on_unimplemented(
     message = "`{Self}` is not tuple, has less than {N} elements, or is too long",
-    note = "At the moment, the trait is implemented only for tuples up to length 8",
+    note = "At the moment, the trait is implemented only for tuples up to length 8"
 )]
 pub trait Slice<const N: usize>: Tuple {
-    /// A tuple containing the first N elements of the original tuple. 
+    /// A tuple containing the first N elements of the original tuple.
     type FirstN;
 
     /// A tuple with the first N elements of the original tuple.
@@ -91,13 +91,19 @@ macro_rules! impl_nth_methods {
     ($n:literal, $name:ident, $ref_name:ident, $map_name:ident) => {
         #[doc = concat!("Returns the ", stringify!($name), " element of the tuple.")]
         #[doc = "For a more generic function, see [`Tuple::nth`]"]
-        fn $name(self) -> Self::Nth where Self: Index<$n> {
+        fn $name(self) -> Self::Nth
+        where
+            Self: Index<$n>,
+        {
             Index::nth(self)
         }
 
         #[doc = concat!("Returns a reference to the ", stringify!($name), " element of the tuple.")]
         #[doc = "For a more generic function, see [`Tuple::nth_ref`]"]
-        fn $ref_name(&self) -> &Self::Nth where Self: Index<$n> {
+        fn $ref_name(&self) -> &Self::Nth
+        where
+            Self: Index<$n>,
+        {
             Index::nth_ref(self)
         }
 
@@ -105,7 +111,7 @@ macro_rules! impl_nth_methods {
         #[doc = "For a more generic function, see [`Tuple::map_nth`]"]
         fn $map_name<U>(self, f: impl FnOnce(Self::Nth) -> U) -> Self::NthMapped<U>
         where
-            Self: Index<$n>
+            Self: Index<$n>,
         {
             Index::map_nth(self, f)
         }
@@ -141,25 +147,37 @@ pub trait Tuple: Sized {
 
     /// Clones the tuple element-wise, e.g. turn `(&T, &U)` into `(T, U)`
     /// Also see [`cloned`]
-    fn cloned(self) -> Self::Cloned where Self: CloneableRefs {
+    fn cloned(self) -> Self::Cloned
+    where
+        Self: CloneableRefs,
+    {
         CloneableRefs::cloned(self)
     }
 
     /// Copies the tuple element-wise, e.g. turn `(&T, &U)` into `(T, U)`
     /// Also see [`copied`]
-    fn copied(self) -> Self::Copied where Self: CopiableRefs {
+    fn copied(self) -> Self::Copied
+    where
+        Self: CopiableRefs,
+    {
         CopiableRefs::copied(self)
     }
 
     /// Returns the `N`-th element of the tuple.
     /// For shortcuts see [`Tuple::first`], [`Tuple::second`], [`Tuple::third`]
-    fn nth<const N: usize>(self) -> Self::Nth where Self: Index<N> {
+    fn nth<const N: usize>(self) -> Self::Nth
+    where
+        Self: Index<N>,
+    {
         Index::nth(self)
     }
 
     /// Returns a reference to the `N`-th element of the tuple.
     /// For shortcuts see [`Tuple::first_ref`], [`Tuple::second_ref`], [`Tuple::third_ref`]
-    fn nth_ref<const N: usize>(&self) -> &Self::Nth where Self: Index<N> {
+    fn nth_ref<const N: usize>(&self) -> &Self::Nth
+    where
+        Self: Index<N>,
+    {
         Index::nth_ref(self)
     }
 
@@ -167,7 +185,7 @@ pub trait Tuple: Sized {
     /// For common shortcuts, see [`Tuple::map_first`], [`Tuple::map_second`], [`Tuple::map_third`]
     fn map_nth<const N: usize, U>(self, f: impl FnOnce(Self::Nth) -> U) -> Self::NthMapped<U>
     where
-        Self: Index<N>
+        Self: Index<N>,
     {
         Index::map_nth(self, f)
     }
@@ -178,20 +196,26 @@ pub trait Tuple: Sized {
 
     /// Returns a tuple that containing the first N elements of the original tuple.
     /// The other elements are discarded.
-    fn first_n<const N: usize>(self) -> Self::FirstN where Self: Slice<N> {
+    fn first_n<const N: usize>(self) -> Self::FirstN
+    where
+        Self: Slice<N>,
+    {
         Slice::first_n(self)
     }
 
     /// Returns the original tuple with its first N elements discarded.
     /// Logical complement of [`Tuple::first_n`]
-    fn strip_first_n<const N: usize>(self) -> Self::FirstNStripped where Self: Slice<N> {
+    fn strip_first_n<const N: usize>(self) -> Self::FirstNStripped
+    where
+        Self: Slice<N>,
+    {
         Slice::strip_first_n(self)
     }
 
     /// Splits the tuple into one with the first N elements and one with the rest.
     fn split<const N: usize>(self) -> (Self::FirstN, Self::FirstNStripped)
     where
-        Self: Slice<N>
+        Self: Slice<N>,
     {
         Slice::split(self)
     }
@@ -324,6 +348,7 @@ impl_tuple_traits!(6 - 0: T0, 1: T1, 2: T2, 3: T3, 4: T4, 5: T5);
 impl_tuple_traits!(7 - 0: T0, 1: T1, 2: T2, 3: T3, 4: T4, 5: T5, 6: T6);
 impl_tuple_traits!(8 - 0: T0, 1: T1, 2: T2, 3: T3, 4: T4, 5: T5, 6: T6, 7: T7);
 
+#[rustfmt::skip]
 macro_rules! impl_nth_fn {
     ($n:literal, $name:ident, $ref_name:ident, $map_name:ident) => {
         #[doc = concat!("Returns the ", stringify!($name), " element of the tuple.")]
@@ -338,16 +363,11 @@ macro_rules! impl_nth_fn {
             Index::nth_ref(tuple)
         }
 
-        #[doc = concat!(
-            "Returns a function that transforms the ",
-            stringify!($name),
-            " element of a tuple with `f`."
-        )]
+        #[doc = concat!("Returns a function that transforms the ", stringify!($name), " element of a tuple with `f`.")]
         #[doc = "For a more generic function, see [`Tuple::map_nth`]"]
-        pub fn $map_name<T: Index<$n>, U>(mut f: impl FnMut(T::Nth) -> U)
-            -> impl FnMut(T)
-            -> T::NthMapped<U>
-        {
+        pub fn $map_name<T: Index<$n>, U>(
+            mut f: impl FnMut(T::Nth) -> U,
+        ) -> impl FnMut(T) -> T::NthMapped<U> {
             move |tuple| Index::map_nth(tuple, &mut f)
         }
     };
@@ -368,7 +388,9 @@ pub fn prepend<U: Clone, T: Tuple>(new_element: U) -> impl Fn(T) -> T::Prepended
 }
 
 /// Turns `T` into a tuple with 1 element, `T`
-pub const fn tuple<T>(x: T) -> (T,) { (x,) }
+pub const fn tuple<T>(x: T) -> (T,) {
+    (x,)
+}
 
 /// Reverses the tuple.
 pub fn rev<T: Tuple>(x: T) -> T::Reversed {

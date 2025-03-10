@@ -1,7 +1,7 @@
 [package]
 name = "shrimple-parser"
 description = "Zero-dependency next-gen parsing combinator library with flexible error reporting"
-version = "0.0.5"
+version = "0.0.6"
 edition = "2021"
 license = "MIT"
 authors = ["Tim Kurdov <tim.kurdov@gmail.com>"]
@@ -26,7 +26,6 @@ unit_arg = "allow"
 
 # restriction = { level = "allow", priority = -1 }
 unwrap_used = "warn"
-expect_used = "warn"
 deref_by_slicing = "warn"
 infinite_loop = "warn"
 mixed_read_write_in_expression = "warn"

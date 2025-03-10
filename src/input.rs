@@ -5,7 +5,9 @@
 ///
 /// [Parser]: crate::Parser
 /// [Pattern]: crate::pattern::Pattern
-pub trait Input: Sized + Clone + core::fmt::Debug + Default + core::ops::Deref<Target = str> {
+pub trait Input:
+    Sized + Clone + core::fmt::Debug + Default + core::ops::Deref<Target = str>
+{
     /// A generalisation of [`str::split_at`]
     #[must_use]
     fn split_at(self, mid: usize) -> (Self, Self);

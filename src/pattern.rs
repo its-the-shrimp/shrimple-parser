@@ -1,13 +1,21 @@
 //! Abstractions for working with patterns.
 
 use {
-    crate::{tuple::{first, map_second, Tuple}, Input, Parser, ParsingError},
-    core::ops::Not,
+    crate::{
+        tuple::{first, map_second, Tuple},
+        Input, Parser, ParsingError,
+    },
+    core::{ops::Not, convert::Infallible},
 };
 
 /// This trait represents an object that can be matched onto a string.
 /// This includes functions, characters, [arrays of] characters, strings, but also custom patterns
 /// like [`NotEscaped`]
+///
+/// See built-in patterns and parser adapters for patterns in the [`pattern`](self) module
+///
+/// Hint: on the success path, the 1st element of the return tuple is the rest of the input (with
+/// or without the matched pattern at the start)
 pub trait Pattern {
     /// The return values are (rest of the input, matched fragment at the beginning).
     ///
@@ -22,7 +30,10 @@ pub trait Pattern {
     /// 0 is also a valid number of matches.
     ///
     /// Used by [`parse_while`]
-    #[expect(clippy::unwrap_used, reason = "this will only panic if the pattern does")]
+    #[expect(
+        clippy::unwrap_used,
+        reason = "this will only panic if the pattern does"
+    )]
     fn immediate_matches<I: Input>(&self, input: I) -> (I, I) {
         let mut rest = Some(input.clone());
         let rest_ptr = loop {
@@ -38,7 +49,10 @@ pub trait Pattern {
     /// Like [`Pattern::immediate_matches`], but also counts the number of matches.
     ///
     /// Used by the [`Pattern`] impl of [`NotEscaped`]
-    #[expect(clippy::unwrap_used, reason = "this will only panic if the pattern does")]
+    #[expect(
+        clippy::unwrap_used,
+        reason = "this will only panic if the pattern does"
+    )]
     fn immediate_matches_counted<I: Input>(&self, input: I) -> (I, (I, usize)) {
         let mut rest = Some(input.clone());
         let mut n = 0;
@@ -52,7 +66,10 @@ pub trait Pattern {
             }
         };
         let input_ptr = input.as_ptr();
-        input.split_at(rest_ptr as usize - input_ptr as usize).rev().map_second(|s| (s, n))
+        input
+            .split_at(rest_ptr as usize - input_ptr as usize)
+            .rev()
+            .map_second(|s| (s, n))
     }
 
     /// Like [`Pattern::immediate_match`], but matches at the end of `input`.
@@ -68,7 +85,10 @@ pub trait Pattern {
     /// and doesn't return the matched fragment of the input.
     ///
     /// Used by the [`Pattern`] impl of [`NotEscaped`]
-    #[expect(clippy::unwrap_used, reason = "this will only panic if the pattern does")]
+    #[expect(
+        clippy::unwrap_used,
+        reason = "this will only panic if the pattern does"
+    )]
     fn trailing_matches_counted<I: Input>(&self, input: I) -> (I, usize) {
         let mut rest = Some(input);
         let mut n = 0;
@@ -107,7 +127,9 @@ pub trait Pattern {
         struct Ref<'this, T: ?Sized>(&'this T);
 
         impl<T: ?Sized> Clone for Ref<'_, T> {
-            fn clone(&self) -> Self { *self }
+            fn clone(&self) -> Self {
+                *self
+            }
         }
 
         impl<T: ?Sized> Copy for Ref<'_, T> {}
@@ -144,40 +166,55 @@ pub trait Pattern {
 
         Ref(self)
     }
+
+    /// Combine `self` and another pattern into a pattern that matches either of them in a
+    /// short-circuiting manner, with `self` tried first.
+    ///
+    /// Do not override this method.
+    fn or<Other: Pattern>(self, other: Other) -> Union<Self, Other>
+    where
+        Self: Sized,
+    {
+        Union(self, other)
+    }
 }
 
-impl<F: Fn(&char) -> bool> Pattern for F {
+impl<F: Fn(char) -> bool> Pattern for F {
     fn immediate_match<I: Input>(&self, input: I) -> Result<(I, I), I> {
-        match input.chars().next().filter(self) {
+        match input.chars().next().filter(|c| self(*c)) {
             Some(c) => Ok(input.split_at(c.len_utf8()).rev()),
             None => Err(input),
         }
     }
 
     fn immediate_matches<I: Input>(&self, input: I) -> (I, I) {
-        let mid = input.find(|c| !self(&c)).unwrap_or(input.len());
+        let mid = input.find(|c| !self(c)).unwrap_or(input.len());
         input.split_at(mid).rev()
     }
 
     fn immediate_matches_counted<I: Input>(&self, input: I) -> (I, (I, usize)) {
         let mut char_index = 0;
-        let byte_index = input.char_indices()
+        let byte_index = input
+            .char_indices()
             .inspect(|_| char_index += 1)
-            .find_map(|(bi, c)| self(&c).not().then_some(bi))
+            .find_map(|(bi, c)| self(c).not().then_some(bi))
             .inspect(|_| char_index -= 1)
             .unwrap_or(input.len());
-        input.split_at(byte_index).rev().map_second(|s| (s, char_index))
+        input
+            .split_at(byte_index)
+            .rev()
+            .map_second(|s| (s, char_index))
     }
 
     fn trailing_match<I: Input>(&self, input: I) -> Result<(I, I), I> {
-        match input.strip_suffix(|c| self(&c)).map(str::len) {
+        match input.strip_suffix(self).map(str::len) {
             Some(len) => Ok(input.split_at(len)),
             None => Err(input),
         }
     }
 
     fn first_match<I: Input>(&self, input: I) -> Result<(I, (I, I)), I> {
-        match input.char_indices().find(|(_, c)| self(c)) {
+        match input.char_indices().find(|(_, c)| self(*c)) {
             Some((at, ch)) => {
                 let (before, after) = input.split_at(at);
                 let r#match = after.clone().before(ch.len_utf8());
@@ -188,11 +225,60 @@ impl<F: Fn(&char) -> bool> Pattern for F {
     }
 
     fn first_match_ex<I: Input>(&self, input: I) -> Result<(I, (I, I)), I> {
-        match input.char_indices().find(|(_, c)| self(c)) {
+        match input.char_indices().find(|(_, c)| self(*c)) {
             Some((at, ch)) => {
                 let (before, after) = input.split_at(at);
                 let (r#match, after) = after.split_at(ch.len_utf8());
                 Ok((after, (before, r#match)))
+            }
+            None => Err(input),
+        }
+    }
+}
+
+/// This is a specialised, optimised impl for matching any `char` in the array. For a more general
+/// pattern combinator, use the [`Union`] pattern by calling the [`Pattern::or`] method
+impl<const N: usize> Pattern for [char; N] {
+    // TODO: specialise for `[char; N]`
+    fn immediate_match<I: Input>(&self, input: I) -> Result<(I, I), I> {
+        match input.strip_prefix(self) {
+            Some(rest) => {
+                let matched_pat_len = input.len() - rest.len();
+                Ok(input.split_at(matched_pat_len).rev())
+            }
+            None => Err(input),
+        }
+    }
+
+    fn trailing_match<I: Input>(&self, input: I) -> Result<(I, I), I> {
+        match input.strip_suffix(self) {
+            Some(rest) => {
+                let rest_len = rest.len();
+                Ok(input.split_at(rest_len))
+            }
+            None => Err(input),
+        }
+    }
+
+    fn first_match<I: Input>(&self, input: I) -> Result<(I, (I, I)), I> {
+        match input.find(self) {
+            Some(at) => {
+                let (prev, match_and_rest) = input.split_at(at);
+                let matched_pat_len = match_and_rest.chars().next().map_or(0, char::len_utf8);
+                let r#match = match_and_rest.clone().before(matched_pat_len);
+                Ok((match_and_rest, (prev, r#match)))
+            }
+            None => Err(input),
+        }
+    }
+
+    fn first_match_ex<I: Input>(&self, input: I) -> Result<(I, (I, I)), I> {
+        match input.find(self) {
+            Some(at) => {
+                let (prev, match_and_rest) = input.split_at(at);
+                let matched_pat_len = match_and_rest.chars().next().map_or(0, char::len_utf8);
+                let (r#match, rest) = match_and_rest.split_at(matched_pat_len);
+                Ok((rest, (prev, r#match)))
             }
             None => Err(input),
         }
@@ -231,7 +317,10 @@ impl Pattern for &str {
     fn trailing_matches_counted<I: Input>(&self, input: I) -> (I, usize) {
         let trimmed_len = input.trim_end_matches(self).len();
         let input_len = input.len();
-        (input.before(trimmed_len), (input_len - trimmed_len) / self.len())
+        (
+            input.before(trimmed_len),
+            (input_len - trimmed_len) / self.len(),
+        )
     }
 
     fn first_match<I: Input>(&self, input: I) -> Result<(I, (I, I)), I> {
@@ -289,7 +378,10 @@ impl Pattern for char {
     fn trailing_matches_counted<I: Input>(&self, input: I) -> (I, usize) {
         let trimmed_len = input.trim_end_matches(*self).len();
         let input_len = input.len();
-        (input.before(trimmed_len), (input_len - trimmed_len) / self.len_utf8())
+        (
+            input.before(trimmed_len),
+            (input_len - trimmed_len) / self.len_utf8(),
+        )
     }
 
     fn first_match<I: Input>(&self, input: I) -> Result<(I, (I, I)), I> {
@@ -321,7 +413,7 @@ impl Pattern for char {
 ///
 /// For example, for a pattern `NotEscaped('\', '0')`, the strings "0", "\\0" & "\\\\\\0" will have
 /// a match, but the strings "\0", "\\ \0" & "\\\\\\\0" won't.
-pub struct NotEscaped<Prefix, Inner>(pub Prefix, pub Inner);
+pub struct NotEscaped<Prefix: Pattern, Inner: Pattern>(pub Prefix, pub Inner);
 
 impl<Prefix: Pattern, Inner: Pattern> Pattern for NotEscaped<Prefix, Inner> {
     fn immediate_match<I: Input>(&self, input: I) -> Result<(I, I), I> {
@@ -331,7 +423,9 @@ impl<Prefix: Pattern, Inner: Pattern> Pattern for NotEscaped<Prefix, Inner> {
     fn trailing_match<I: Input>(&self, input: I) -> Result<(I, I), I> {
         let (rest, r#match) = self.1.trailing_match(input.clone())?;
         let (rest, n_prefixes) = self.0.trailing_matches_counted(rest);
-        (n_prefixes % 2 == 0).then_some((rest, r#match)).ok_or(input)
+        (n_prefixes % 2 == 0)
+            .then_some((rest, r#match))
+            .ok_or(input)
     }
 
     fn trailing_matches_counted<I: Input>(&self, input: I) -> (I, usize) {
@@ -376,7 +470,7 @@ impl<Prefix: Pattern, Inner: Pattern> Pattern for NotEscaped<Prefix, Inner> {
             let Ok((before, _)) = self.0.trailing_match(before) else {
                 let index = r#match.as_ptr() as usize - input.as_ptr() as usize;
                 let before = input.before(index);
-                return Ok((rest, (before, r#match)))
+                return Ok((rest, (before, r#match)));
             };
             let (_, n_prefixes_minus_one) = self.0.trailing_matches_counted(before);
             if n_prefixes_minus_one % 2 != 0 {
@@ -395,7 +489,7 @@ impl Pattern for AnyChar {
     fn immediate_match<I: Input>(&self, input: I) -> Result<(I, I), I> {
         match input.chars().next() {
             Some(ch) => Ok(input.split_at(ch.len_utf8()).rev()),
-            None => Err(input)
+            None => Err(input),
         }
     }
 
@@ -415,13 +509,53 @@ impl Pattern for AnyChar {
     }
 }
 
+/// A pattern that matches either of the 2 patterns in a short-circuiting manner,
+/// with `self` tried first. May be created by [`Pattern::or`] for convenience.
+///
+/// # Note
+/// If you want to match either of N chars, use an array of them as a pattern instead, as this
+/// struct has a general impl that may miss optimisations applicable to the case of `[char; N]`
+/// being the pattern. However, unlike the array pattern, the combination of patterns using this
+/// struct is not commutative, since the second pattern is only tried if the former has not been
+/// found in the input.
+pub struct Union<P1: Pattern, P2: Pattern>(pub P1, pub P2);
+
+impl<P1: Pattern, P2: Pattern> Pattern for Union<P1, P2> {
+    fn immediate_match<I: Input>(&self, input: I) -> Result<(I, I), I> {
+        self.0
+            .immediate_match(input)
+            .or_else(|input| self.1.immediate_match(input))
+    }
+
+    fn trailing_match<I: Input>(&self, input: I) -> Result<(I, I), I> {
+        self.0
+            .trailing_match(input)
+            .or_else(|input| self.1.trailing_match(input))
+    }
+
+    fn first_match<I: Input>(&self, input: I) -> Result<(I, (I, I)), I> {
+        self.0
+            .first_match(input)
+            .or_else(|input| self.1.first_match(input))
+    }
+
+    fn first_match_ex<I: Input>(&self, input: I) -> Result<(I, (I, I)), I> {
+        self.0
+            .first_match_ex(input)
+            .or_else(|input| self.1.first_match_ex(input))
+    }
+}
+
 /// Parses 1 instance of pattern `pat`.
 ///
 /// # Errors
 /// The returned parser returns a recoverable error if the pattern didn't match at the beginning of
 /// the input.
-pub fn parse<In: Input>(pat: impl Pattern) -> impl Parser<In, In> {
-    move |input| pat.immediate_match(input).map_err(ParsingError::new_recoverable)
+pub fn parse<In: Input, Reason>(pat: impl Pattern) -> impl Parser<In, In, Reason> {
+    move |input| {
+        pat.immediate_match(input)
+            .map_err(ParsingError::new_recoverable)
+    }
 }
 
 /// Parses contiguous instances of pattern `pat`.
@@ -430,7 +564,7 @@ pub fn parse<In: Input>(pat: impl Pattern) -> impl Parser<In, In> {
 /// the returned string is empty (but also points to the start of the input)
 ///
 /// See also [`parse_until`], [`parse_until_ex`].
-pub fn parse_while<In: Input>(pat: impl Pattern) -> impl Parser<In, In> {
+pub fn parse_while<In: Input, Reason>(pat: impl Pattern) -> impl Parser<In, In, Reason> {
     move |input| Ok(pat.immediate_matches(input))
 }
 
@@ -442,10 +576,13 @@ pub fn parse_while<In: Input>(pat: impl Pattern) -> impl Parser<In, In> {
 /// in the input, then the output is the entire input, and the rest of the input is an empty string.
 ///
 /// See also [`parse_while`], [`parse_until_ex`].
-pub fn parse_until<In: Input>(pat: impl Pattern) -> impl Parser<In, In> {
-    move |input| Ok({
-        pat.first_match(input).map_or_else(|input| (In::default(), input), map_second(first))
-    })
+pub fn parse_until<In: Input, Reason>(pat: impl Pattern) -> impl Parser<In, In, Reason> {
+    move |input| {
+        Ok({
+            pat.first_match(input)
+                .map_or_else(|input| (In::default(), input), map_second(first))
+        })
+    }
 }
 
 /// Like [`parse_until`], but also removes the match of `pat` from the rest of the input.
@@ -453,9 +590,12 @@ pub fn parse_until<In: Input>(pat: impl Pattern) -> impl Parser<In, In> {
 /// # Errors
 /// Unlike [`parse_until`], this parser returns a recoverable error if `pred` returned `false` for
 /// all the characters in the input.
-pub fn parse_until_ex<In: Input>(pat: impl Pattern) -> impl Parser<In, In> {
-    move |input| pat.first_match_ex(input).map(map_second(first))
-        .map_err(ParsingError::new_recoverable)
+pub fn parse_until_ex<In: Input, Reason>(pat: impl Pattern) -> impl Parser<In, In, Reason> {
+    move |input| {
+        pat.first_match_ex(input)
+            .map(map_second(first))
+            .map_err(ParsingError::new_recoverable)
+    }
 }
 
 /// Parse a balanced group of `open` & `close` patterns.
@@ -475,25 +615,26 @@ pub fn parse_until_ex<In: Input>(pat: impl Pattern) -> impl Parser<In, In> {
 /// assert_eq!(parse_group('(', ')')(src), Err(ParsingError::new("(oops", ())));
 /// # }
 /// ```
-#[expect(clippy::missing_panics_doc, clippy::unwrap_used, reason = "Panics only if the pattern does")]
-pub fn parse_group<In: Input>(
-    open: impl Pattern,
-    close: impl Pattern,
-) -> impl Parser<In, In, ()> {
+#[expect(
+    clippy::missing_panics_doc,
+    clippy::unwrap_used,
+    reason = "Panics only if the pattern does"
+)]
+pub fn parse_group<In: Input>(open: impl Pattern, close: impl Pattern) -> impl Parser<In, In, ()> {
     move |input| {
         let (open, close) = (open.by_ref(), close.by_ref());
-        let (mut rest, _) = parse(open).map_reason(|x| match x {})(input.clone())?;
+        let (mut rest, _) = parse(open)(input.clone())?;
         let after_1st_open = rest.clone();
         let mut depth = 0usize;
         loop {
             let mut group;
-            match parse_until_ex(close)(rest) {
+            match parse_until_ex::<_, Infallible>(close)(rest) {
                 Ok(x) => (rest, group) = x,
                 Err(_) => break Err(ParsingError::new(input, ())),
             }
             let mut after_open = Some(group);
             group = loop {
-                match parse_until_ex(open)(after_open.take().unwrap()) {
+                match parse_until_ex::<_, Infallible>(open)(after_open.take().unwrap()) {
                     Ok((x, _)) => {
                         depth += 1;
                         after_open = Some(x);
@@ -511,24 +652,44 @@ pub fn parse_group<In: Input>(
 }
 
 #[test]
-fn test_char_pat() {
+fn char_pat() {
     assert_eq!(
-        parse_until_ex('"')
+        parse_until_ex::<_, Infallible>('"')
             .parse(r#"this is what they call a \"test\", right?" - he said"#),
-        Ok((r#"test\", right?" - he said"#, r"this is what they call a \")),
+        Ok((
+            r#"test\", right?" - he said"#,
+            r"this is what they call a \"
+        )),
     );
 }
 
 #[test]
-fn test_not_escaped_pat() {
+fn not_escaped_pat() {
     assert_eq!(
-        parse_until_ex(NotEscaped('\\', '"'))
+        parse_until_ex::<_, Infallible>(NotEscaped('\\', '"'))
             .parse(r#"this is what they call a \"test\", right?" - he said"#),
         Ok((" - he said", r#"this is what they call a \"test\", right?"#)),
     );
 }
 
 #[test]
-fn test_str_pat() {
-    assert_eq!(parse("abc")("abcdef"), Ok(("def", "abc")));
+fn str_pat() {
+    assert_eq!(parse::<_, Infallible>("abc")("abcdef"), Ok(("def", "abc")));
+}
+
+#[test]
+fn array_pat() {
+    assert_eq!(
+        parse_until_ex::<_, Infallible>([';', '\''])("abc;def'xyz"),
+        Ok(("def'xyz", "abc"))
+    );
+}
+
+#[test]
+fn union_pat() {
+    let src = "abc;def'xyz";
+    assert_eq!(
+        parse_until_ex::<_, Infallible>(';'.or('\''))(src),
+        parse_until_ex([';', '\''])(src)
+    );
 }
