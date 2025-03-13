@@ -1,12 +1,12 @@
 //! This is an example of an XML parser implemented with `shrimple_parser`
 
 use {
+    core::fmt::{Display, Formatter},
     shrimple_parser::{
         from_tuple, match_out, parse_whitespace,
         pattern::{parse, parse_until, parse_until_ex, NotEscaped},
         ready, Input, Parser, ParsingError, ParsingResult,
     },
-    core::fmt::{Display, Formatter},
     std::env::args,
 };
 

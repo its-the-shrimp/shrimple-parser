@@ -2,14 +2,14 @@ extern crate alloc;
 
 use {
     crate::{utils::PathLike, FullLocation, Input, Location},
+    alloc::borrow::Cow,
     core::{
         convert::Infallible,
         error::Error,
         fmt::{Debug, Display, Formatter},
         ops::Not,
     },
-    std::{io, fs::read_to_string},
-    alloc::borrow::Cow,
+    std::{fs::read_to_string, io},
 };
 
 /// Error returned by a parser.
@@ -123,7 +123,7 @@ impl<In, Reason> ParsingError<In, Reason> {
     }
 
     /// Turns the error into a [`FullParsingError`] for a more informative report.
-    /// 
+    ///
     /// The error will point to the provided source code.
     /// The provided path will only be used for display purposes, this method won't access the file
     /// system.
@@ -147,7 +147,10 @@ impl<In, Reason> ParsingError<In, Reason> {
     /// # Errors
     /// Returns an error if [`std::fs::read_to_string`] does.
     #[cfg(feature = "std")]
-    pub fn with_file_loc<'a>(self, path: impl PathLike<'a>) -> io::Result<FullParsingError<'a, Reason>>
+    pub fn with_file_loc<'a>(
+        self,
+        path: impl PathLike<'a>,
+    ) -> io::Result<FullParsingError<'a, Reason>>
     where
         In: Input,
     {
@@ -188,7 +191,8 @@ impl<Reason: Display> Display for FullParsingError<'_, Reason> {
             writeln!(f, "{reason}")?;
         }
         writeln!(f, "--> {}", self.loc)?;
-        let line = self.src
+        let line = self
+            .src
             .lines()
             .nth(self.loc.loc.line.get() as usize - 1)
             .ok_or(core::fmt::Error)?;

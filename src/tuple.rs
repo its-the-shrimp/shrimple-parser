@@ -417,9 +417,9 @@ pub fn copied<T: CopiableRefs>(x: T) -> T::Copied {
 /// struct Example<'src> { a: &'src str, b: &'src str }
 ///
 /// let input = "abc|def|";
-/// let res = parse_until_ex("|")
+/// let res = parse_until_ex::<_, ()>("|")
 ///     .and(parse_until_ex("|"))
-///     .map(from_tuple!(Example { a, b }))
+///     .map_out(from_tuple!(Example { a, b }))
 ///     .parse(input);
 /// assert_eq!(res, Ok(("", Example { a: "abc", b: "def" })))
 /// # }
@@ -447,9 +447,9 @@ macro_rules! last {
 /// }
 ///
 /// let input = "abc|def|";
-/// let res = parse_until_ex("|")
+/// let res = parse_until_ex::<_, ()>("|")
 ///     .and(parse_until_ex("|"))
-///     .map(call!(len_sum(a, b)))
+///     .map_out(call!(len_sum(a, b)))
 ///     .parse(input);
 /// assert_eq!(res, Ok(("", 6)))
 /// # }

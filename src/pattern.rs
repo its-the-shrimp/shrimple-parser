@@ -5,8 +5,11 @@ use {
         tuple::{first, map_second, Tuple},
         Input, Parser, ParsingError,
     },
-    core::{ops::Not, convert::Infallible},
+    core::ops::Not,
 };
+
+#[cfg(test)]
+use core::convert::Infallible;
 
 /// This trait represents an object that can be matched onto a string.
 /// This includes functions, characters, [arrays of] characters, strings, but also custom patterns
@@ -518,6 +521,7 @@ impl Pattern for AnyChar {
 /// being the pattern. However, unlike the array pattern, the combination of patterns using this
 /// struct is not commutative, since the second pattern is only tried if the former has not been
 /// found in the input.
+#[derive(Debug, Clone, Copy)]
 pub struct Union<P1: Pattern, P2: Pattern>(pub P1, pub P2);
 
 impl<P1: Pattern, P2: Pattern> Pattern for Union<P1, P2> {
@@ -600,6 +604,9 @@ pub fn parse_until_ex<In: Input, Reason>(pat: impl Pattern) -> impl Parser<In, I
 
 /// Parse a balanced group of `open` & `close` patterns.
 ///
+/// The start & end of the group are <u>included</u> in the output.
+/// See [`parse_group_ex`] for a parser that excludes them.
+///
 /// # Errors
 /// - If no initial `open` was found, a recoverable error is returned.
 /// - If the end was reached before a matching `close` pattern, a fatal error is returned.
@@ -609,45 +616,103 @@ pub fn parse_until_ex<In: Input, Reason>(pat: impl Pattern) -> impl Parser<In, I
 /// # fn main() {
 /// use shrimple_parser::{pattern::parse_group, ParsingError};
 /// let src = "(foo ()) bar";
-/// assert_eq!(parse_group('(', ')')(src), Ok((" bar", "foo ()")));
+/// assert_eq!(parse_group('(', ')')(src), Ok((" bar", "(foo ())")));
 ///
 /// let src = "(oops";
-/// assert_eq!(parse_group('(', ')')(src), Err(ParsingError::new("(oops", ())));
+/// assert_eq!(parse_group('(', ')')(src), Err(ParsingError::new("oops", ())));
 /// # }
 /// ```
-#[expect(
-    clippy::missing_panics_doc,
-    clippy::unwrap_used,
-    reason = "Panics only if the pattern does"
-)]
 pub fn parse_group<In: Input>(open: impl Pattern, close: impl Pattern) -> impl Parser<In, In, ()> {
     move |input| {
-        let (open, close) = (open.by_ref(), close.by_ref());
-        let (mut rest, _) = parse(open)(input.clone())?;
-        let after_1st_open = rest.clone();
-        let mut depth = 0usize;
-        loop {
-            let mut group;
-            match parse_until_ex::<_, Infallible>(close)(rest) {
-                Ok(x) => (rest, group) = x,
-                Err(_) => break Err(ParsingError::new(input, ())),
+        let Ok((mut rest, _)) = open.immediate_match(&*input) else {
+            return Err(ParsingError::new_recoverable(input));
+        };
+        let mut nesting = 1;
+        while nesting > 0 {
+            let (after_open, (before_open, open)) =
+                open.first_match_ex(rest).unwrap_or(("", (rest, "")));
+            let (after_close, (before_close, close)) =
+                close.first_match_ex(rest).unwrap_or(("", (rest, "")));
+
+            if [open, close] == ["", ""] {
+                // neither `open` nor `close` matched, and nesting > 0
+                let rest_start = input.len() - rest.len();
+                return Err(ParsingError::new(input.after(rest_start), ()));
             }
-            let mut after_open = Some(group);
-            group = loop {
-                match parse_until_ex::<_, Infallible>(open)(after_open.take().unwrap()) {
-                    Ok((x, _)) => {
-                        depth += 1;
-                        after_open = Some(x);
-                    }
-                    Err(x) => break x.rest,
-                };
-            };
-            if depth == 0 {
-                let len = group.as_ptr() as usize + group.len() - after_1st_open.as_ptr() as usize;
-                break Ok((rest, after_1st_open.before(len)));
+
+            if before_open.len() < before_close.len() {
+                rest = after_open;
+                nesting += 1;
+            } else {
+                rest = after_close;
+                nesting -= 1;
             }
-            depth -= 1;
         }
+
+        let res_len = input.len() - rest.len();
+        Ok(input.split_at(res_len).rev())
+    }
+}
+
+/// Parse a balanced group of `open` & `close` patterns.
+///
+/// The start & end of the group are <u>excluded</u> in the output.
+/// See [`parse_group`] for a parser that includes them.
+///
+/// # Errors
+/// - If no initial `open` was found, a recoverable error is returned.
+/// - If the end was reached before a matching `close` pattern, a fatal error is returned.
+///
+/// An example use of this is parsing balanced parentheses:
+/// ```rust
+/// # fn main() {
+/// use shrimple_parser::{pattern::parse_group_ex, ParsingError};
+/// let src = "(foo ()) bar";
+/// assert_eq!(parse_group_ex('(', ')')(src), Ok((" bar", "foo ()")));
+///
+/// let src = "(oops";
+/// assert_eq!(parse_group_ex('(', ')')(src), Err(ParsingError::new("oops", ())));
+/// # }
+/// ```
+pub fn parse_group_ex<In: Input>(
+    open: impl Pattern,
+    close: impl Pattern,
+) -> impl Parser<In, In, ()> {
+    move |input| {
+        let input = match open.immediate_match(input) {
+            Ok((rest, _)) => rest,
+            Err(input) => return Err(ParsingError::new_recoverable(input)),
+        };
+        let mut rest = &*input;
+        let mut nesting = 1;
+        let mut close_len = 0;
+        while nesting > 0 {
+            let (after_open, (before_open, open)) =
+                open.first_match_ex(rest).unwrap_or(("", (rest, "")));
+            let (after_close, (before_close, close)) =
+                close.first_match_ex(rest).unwrap_or(("", (rest, "")));
+
+            if [open, close] == ["", ""] {
+                // neither `open` nor `close` matched, and nesting > 0
+                let rest_start = input.len() - rest.len();
+                return Err(ParsingError::new(input.after(rest_start), ()));
+            }
+
+            if before_open.len() < before_close.len() {
+                rest = after_open;
+                nesting += 1;
+            } else {
+                rest = after_close;
+                close_len = close.len();
+                nesting -= 1;
+            }
+        }
+
+        let res_len = input.len() - rest.len() - close_len;
+        Ok(input
+            .split_at(res_len)
+            .map_second(|rest| rest.after(close_len))
+            .rev())
     }
 }
 

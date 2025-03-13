@@ -118,7 +118,7 @@ impl Location {
     /// ```rust
     /// # fn main() {
     /// use std::collections::HashMap;
-    /// use shrimple_parser::{utils::Location, nonzero, tuple::copied};
+    /// use shrimple_parser::{Location, nonzero, tuple::copied};
     ///
     /// let file2 = "          \n\nfn main() { panic!() }";
     /// let sources = HashMap::from([

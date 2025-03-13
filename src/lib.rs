@@ -594,12 +594,21 @@ pub fn parse_char<In: Input, Reason>(input: In) -> ParsingResult<In, char, Reaso
 /// Parses a sequence of Unicode whitespace. See [`char::is_whitespace`] for the definition of
 /// that.
 ///
-/// A shorter equivalent of `pattern::parse_while(char::is_whitespace)`.
-///
 /// # Errors
 /// Never returns an error. If there's no whitespace at tbe start of the input, the returned string
 /// is empty.
 pub fn parse_whitespace<In: Input, Reason>(input: In) -> ParsingResult<In, In, Reason> {
     let ws_len = input.len() - input.trim_start().len();
+    Ok(input.split_at(ws_len).rev())
+}
+
+/// Parses a sequence of ASCII whitespace. See [`char::is_ascii_whitespace`] for the definition of
+/// that.
+///
+/// # Errors
+/// Never returns an error. If there's no whitespace at tbe start of the input, the returned string
+/// is empty.
+pub fn parse_ascii_whitespace<In: Input, Reason>(input: In) -> ParsingResult<In, In, Reason> {
+    let ws_len = input.len() - input.trim_ascii_start().len();
     Ok(input.split_at(ws_len).rev())
 }
