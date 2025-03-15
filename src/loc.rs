@@ -88,11 +88,11 @@ impl Location {
         if rhs.line.get() == 1 {
             Self {
                 line: self.line,
-                col: self.col - rhs.col,
+                col: self.col + rhs.col,
             }
         } else {
             Self {
-                line: NonZero::new(self.line.get() - rhs.line.get() + 1).expect("no overflow"),
+                line: NonZero::new(self.line.get() + rhs.line.get() - 1).expect("no overflow"),
                 col: rhs.col,
             }
         }

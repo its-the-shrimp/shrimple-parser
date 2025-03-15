@@ -387,6 +387,7 @@ impl Pattern for char {
     }
 }
 
+#[cfg(feature = "either")]
 macro_rules! fwd_method_impl {
     ($(fn $name:ident -> $ret:ty;)+) => {
         $(

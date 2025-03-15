@@ -19,7 +19,7 @@ dependencies = [
 
 [[package]]
 name = "shrimple-parser"
-version = "0.0.10"
+version = "0.0.11"
 dependencies = [
  "either",
  "proc-macro2",
