@@ -51,6 +51,9 @@ pub use {
     pattern::Pattern,
 };
 
+#[cfg(feature = "proc-macro2")]
+pub use loc::LineColumnToLocationError;
+
 use {
     core::{
         convert::Infallible,

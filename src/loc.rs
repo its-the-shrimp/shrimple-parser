@@ -19,6 +19,42 @@ pub struct Location {
     pub col: u32,
 }
 
+/// The error returned when converting a [`proc_macro2::LineColumn`] to [`Location`].
+#[cfg(feature = "proc-macro2")]
+#[derive(Debug, Clone, Copy)]
+pub enum LineColumnToLocationError {
+    /// Line 0 was encountered, which is invalid, source lines are 1-indexed.
+    LineZero,
+    /// Line number overflowed a u32.
+    LineNumberTooBig,
+    /// Column number overflowed a u32.
+    ColumnNumberTooBig,
+}
+
+#[cfg(feature = "proc-macro2")]
+impl Display for LineColumnToLocationError {
+    fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
+        f.write_str(match self {
+            Self::LineZero => "`LineColumn` with line #0 found",
+            Self::LineNumberTooBig => "`LineColumn`s line number overflowed a u32",
+            Self::ColumnNumberTooBig => "`LineColumn`s column number overflowed a u32",
+        })
+    }
+}
+
+#[cfg(feature = "proc-macro2")]
+impl TryFrom<proc_macro2::LineColumn> for Location {
+    type Error = LineColumnToLocationError;
+
+    fn try_from(value: proc_macro2::LineColumn) -> Result<Self, Self::Error> {
+        let line = u32::try_from(value.line).map_err(|_| LineColumnToLocationError::LineNumberTooBig)?;
+        let line = NonZero::new(line).ok_or(LineColumnToLocationError::LineZero)?;
+        let col = u32::try_from(value.column).map_err(|_| LineColumnToLocationError::ColumnNumberTooBig)?;
+
+        Ok(Self { line, col })
+    }
+}
+
 impl Default for Location {
     fn default() -> Self {
         Self {
