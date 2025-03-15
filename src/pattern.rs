@@ -125,48 +125,7 @@ pub trait Pattern {
     /// Get the pattern by reference to avoid moving it, which will happen in generic code
     ///
     /// Do not override this method.
-    fn by_ref(&self) -> impl Pattern + Copy {
-        #[repr(transparent)]
-        struct Ref<'this, T: ?Sized>(&'this T);
-
-        impl<T: ?Sized> Clone for Ref<'_, T> {
-            fn clone(&self) -> Self {
-                *self
-            }
-        }
-
-        impl<T: ?Sized> Copy for Ref<'_, T> {}
-
-        impl<T: Pattern + ?Sized> Pattern for Ref<'_, T> {
-            fn immediate_match<I: Input>(&self, input: I) -> Result<(I, I), I> {
-                T::immediate_match(self.0, input)
-            }
-
-            fn immediate_matches<I: Input>(&self, input: I) -> (I, I) {
-                T::immediate_matches(self.0, input)
-            }
-
-            fn immediate_matches_counted<I: Input>(&self, input: I) -> (I, (I, usize)) {
-                T::immediate_matches_counted(self.0, input)
-            }
-
-            fn trailing_match<I: Input>(&self, input: I) -> Result<(I, I), I> {
-                T::trailing_match(self.0, input)
-            }
-
-            fn trailing_matches_counted<I: Input>(&self, input: I) -> (I, usize) {
-                T::trailing_matches_counted(self.0, input)
-            }
-
-            fn first_match<I: Input>(&self, input: I) -> Result<(I, (I, I)), I> {
-                T::first_match(self.0, input)
-            }
-
-            fn first_match_ex<I: Input>(&self, input: I) -> Result<(I, (I, I)), I> {
-                T::first_match_ex(self.0, input)
-            }
-        }
-
+    fn by_ref(&self) -> Ref<'_, Self> {
         Ref(self)
     }
 
@@ -179,6 +138,24 @@ pub trait Pattern {
         Self: Sized,
     {
         Union(self, other)
+    }
+
+    /// Create a pattern that'll match `self` only if it's not escaped (immediately preceded)
+    /// by the provided pattern.
+    fn not_escaped_by<Prefix: Pattern>(self, prefix: Prefix) -> NotEscaped<Prefix, Self>
+    where
+        Self: Sized,
+    {
+        NotEscaped(prefix, self)
+    }
+
+    /// Create a pattern that'll match `self` only if it's not enclosed (preceded & superceded) by
+    /// the provided pattern.
+    fn not_enclosed_by<Enclosure: Pattern>(self, enc: Enclosure) -> NotEnclosed<Enclosure, Self>
+    where
+        Self: Sized,
+    {
+        NotEnclosed(enc, self)
     }
 }
 
@@ -410,12 +387,55 @@ impl Pattern for char {
     }
 }
 
+/// Pattern that's the reference to another pattern, used in generic code to reuse the pattern.
+#[repr(transparent)]
+pub struct Ref<'this, T: ?Sized + Pattern>(&'this T);
+
+impl<T: ?Sized + Pattern> Clone for Ref<'_, T> {
+    fn clone(&self) -> Self {
+        *self
+    }
+}
+
+impl<T: ?Sized + Pattern> Copy for Ref<'_, T> {}
+
+impl<T: ?Sized + Pattern> Pattern for Ref<'_, T> {
+    fn immediate_match<I: Input>(&self, input: I) -> Result<(I, I), I> {
+        T::immediate_match(self.0, input)
+    }
+
+    fn immediate_matches<I: Input>(&self, input: I) -> (I, I) {
+        T::immediate_matches(self.0, input)
+    }
+
+    fn immediate_matches_counted<I: Input>(&self, input: I) -> (I, (I, usize)) {
+        T::immediate_matches_counted(self.0, input)
+    }
+
+    fn trailing_match<I: Input>(&self, input: I) -> Result<(I, I), I> {
+        T::trailing_match(self.0, input)
+    }
+
+    fn trailing_matches_counted<I: Input>(&self, input: I) -> (I, usize) {
+        T::trailing_matches_counted(self.0, input)
+    }
+
+    fn first_match<I: Input>(&self, input: I) -> Result<(I, (I, I)), I> {
+        T::first_match(self.0, input)
+    }
+
+    fn first_match_ex<I: Input>(&self, input: I) -> Result<(I, (I, I)), I> {
+        T::first_match_ex(self.0, input)
+    }
+}
+
 /// Pattern that matches pattern `Inner` not escaped by `Prefix`.
-/// "escaped" here means that the pattern `Inner` is preceded by an odd number
-/// of contiguous `Prefix`es.
+/// "escaped" here means that the pattern `Inner` is preceded by a `Prefix` that's not preceded by
+/// itself.
 ///
 /// For example, for a pattern `NotEscaped('\', '0')`, the strings "0", "\\0" & "\\\\\\0" will have
 /// a match, but the strings "\0", "\\ \0" & "\\\\\\\0" won't.
+#[derive(Clone, Copy)]
 pub struct NotEscaped<Prefix: Pattern, Inner: Pattern>(pub Prefix, pub Inner);
 
 impl<Prefix: Pattern, Inner: Pattern> Pattern for NotEscaped<Prefix, Inner> {
@@ -485,7 +505,81 @@ impl<Prefix: Pattern, Inner: Pattern> Pattern for NotEscaped<Prefix, Inner> {
     }
 }
 
+/// Pattern that matches pattern `Inner` not surrounded by `Enclosure`.
+pub struct NotEnclosed<Enclosure: Pattern, Inner: Pattern>(pub Enclosure, pub Inner);
+
+impl<Enclosure: Pattern, Inner: Pattern> Pattern for NotEnclosed<Enclosure, Inner> {
+    fn immediate_match<I: Input>(&self, input: I) -> Result<(I, I), I> {
+        self.1.immediate_match(input)
+    }
+
+    fn immediate_matches<I: Input>(&self, input: I) -> (I, I) {
+        self.1.immediate_matches(input)
+    }
+
+    fn trailing_match<I: Input>(&self, input: I) -> Result<(I, I), I> {
+        self.1.trailing_match(input)
+    }
+
+    fn first_match<I: Input>(&self, input: I) -> Result<(I, (I, I)), I> {
+        let mut enclosed = false;
+        let mut rest = &*input;
+        loop {
+            let (after_enc, (before_enc, enc)) =
+                self.0.first_match_ex(rest).unwrap_or(("", (rest, "")));
+            let (after_inner, (before_inner, inner)) =
+                self.1.first_match_ex(rest).unwrap_or(("", (rest, "")));
+
+            if [enc, inner] == ["", ""] {
+                break Err(input);
+            }
+
+            if before_enc.len() < before_inner.len() {
+                rest = after_enc;
+                enclosed = !enclosed;
+            } else if enclosed {
+                rest = after_inner;
+            } else {
+                let match_len = inner.len();
+                let before_len = input.len() - after_inner.len() - match_len;
+                let (before, rest_and_match) = input.split_at(before_len);
+                let r#match = rest_and_match.clone().before(match_len);
+                break Ok((rest_and_match, (before, r#match)));
+            }
+        }
+    }
+
+    fn first_match_ex<I: Input>(&self, input: I) -> Result<(I, (I, I)), I> {
+        let mut enclosed = false;
+        let mut rest = &*input;
+        loop {
+            let (after_enc, (before_enc, enc)) =
+                self.0.first_match_ex(rest).unwrap_or(("", (rest, "")));
+            let (after_inner, (before_inner, inner)) =
+                self.1.first_match_ex(rest).unwrap_or(("", (rest, "")));
+
+            if [enc, inner] == ["", ""] {
+                break Err(input);
+            }
+
+            if before_enc.len() < before_inner.len() {
+                rest = after_enc;
+                enclosed = !enclosed;
+            } else if enclosed {
+                rest = after_inner;
+            } else {
+                let match_len = inner.len();
+                let before_len = input.len() - after_inner.len() - match_len;
+                let (before, rest_and_match) = input.split_at(before_len);
+                let (r#match, rest) = rest_and_match.split_at(match_len);
+                break Ok((rest, (before, r#match)));
+            }
+        }
+    }
+}
+
 /// A pattern that matches anything.
+#[derive(Clone, Copy)]
 pub struct AnyChar;
 
 impl Pattern for AnyChar {
