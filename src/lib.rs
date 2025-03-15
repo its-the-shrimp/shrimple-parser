@@ -480,7 +480,7 @@ pub trait Parser<In: Input, Out, Reason = Infallible>:
             Ok((rest, out)) => {
                 let until = rest.char_indices().nth(16).map_or(rest.len(), |x| x.0);
                 let r = &rest[..until].escape_debug();
-                println!("{label}: Ok({out:?}) : {r}...");
+                eprintln!("{label}: Ok({out:?}) : {r}...");
                 Ok((rest, out))
             }
             Err(err) => {
@@ -490,7 +490,7 @@ pub trait Parser<In: Input, Out, Reason = Infallible>:
                     .nth(16)
                     .map_or(err.rest.len(), |x| x.0);
                 let r = &err.rest[..until].escape_debug();
-                println!("{label}: Err({:?}) : {r}...", err.reason);
+                eprintln!("{label}: Err({:?}) : {r}...", err.reason);
                 Err(err)
             }
         }

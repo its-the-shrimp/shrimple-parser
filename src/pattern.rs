@@ -659,15 +659,41 @@ impl<P1: Pattern, P2: Pattern> Pattern for Union<P1, P2> {
     }
 
     fn first_match<I: Input>(&self, input: I) -> Result<(I, (I, I)), I> {
-        self.0
-            .first_match(input)
-            .or_else(|input| self.1.first_match(input))
+        let (before1, match1) = self.0.first_match(&*input).map_or((&*input, ""), |x| x.1);
+        let (before2, match2) = self.1.first_match(&*input).map_or((&*input, ""), |x| x.1);
+
+        if [match1, match2] == ["", ""] {
+            return Err(input);
+        }
+
+        let [before_len, match_len] = if before1.len() < before2.len() {
+            [before1.len(), match1.len()]
+        } else {
+            [before2.len(), match2.len()]
+        };
+
+        let (before, match_rest) = input.split_at(before_len);
+        let r#match = match_rest.clone().before(match_len);
+        Ok((match_rest, (before, r#match)))
     }
 
     fn first_match_ex<I: Input>(&self, input: I) -> Result<(I, (I, I)), I> {
-        self.0
-            .first_match_ex(input)
-            .or_else(|input| self.1.first_match_ex(input))
+        let (before1, match1) = self.0.first_match(&*input).map_or((&*input, ""), |x| x.1);
+        let (before2, match2) = self.1.first_match(&*input).map_or((&*input, ""), |x| x.1);
+
+        if [match1, match2] == ["", ""] {
+            return Err(input);
+        }
+
+        let [before_len, match_len] = if before1.len() < before2.len() {
+            [before1.len(), match1.len()]
+        } else {
+            [before2.len(), match2.len()]
+        };
+
+        let (before, match_rest) = input.split_at(before_len);
+        let (r#match, rest) = match_rest.split_at(match_len);
+        Ok((rest, (before, r#match)))
     }
 }
 
