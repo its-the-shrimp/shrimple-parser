@@ -55,6 +55,13 @@ impl TryFrom<proc_macro2::LineColumn> for Location {
     }
 }
 
+#[cfg(feature = "proc-macro2")]
+impl From<Location> for proc_macro2::LineColumn {
+    fn from(value: Location) -> Self {
+        Self { line: value.line.get() as usize, column: value.col as usize }
+    }
+}
+
 impl Default for Location {
     fn default() -> Self {
         Self {
