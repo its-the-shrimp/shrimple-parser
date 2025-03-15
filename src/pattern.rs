@@ -387,6 +387,32 @@ impl Pattern for char {
     }
 }
 
+macro_rules! fwd_method_impl {
+    ($(fn $name:ident -> $ret:ty;)+) => {
+        $(
+            fn $name<I: Input>(&self, input: I) -> $ret {
+                match self {
+                    either::Either::Left(l) => l.$name(input),
+                    either::Either::Right(r) => r.$name(input),
+                }
+            }
+        )+
+    };
+}
+
+#[cfg(feature = "either")]
+impl<L: Pattern, R: Pattern> Pattern for either::Either<L, R> {
+    fwd_method_impl! {
+        fn immediate_match -> Result<(I, I), I>;
+        fn immediate_matches -> (I, I);
+        fn immediate_matches_counted -> (I, (I, usize));
+        fn trailing_match -> Result<(I, I), I>;
+        fn trailing_matches_counted -> (I, usize);
+        fn first_match -> Result<(I, (I, I)), I>;
+        fn first_match_ex -> Result<(I, (I, I)), I>;
+    }
+}
+
 /// Pattern that's the reference to another pattern, used in generic code to reuse the pattern.
 #[repr(transparent)]
 pub struct Ref<'this, T: ?Sized + Pattern>(&'this T);
