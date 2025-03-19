@@ -279,9 +279,16 @@ pub trait Parser<In: Input, Out, Reason = Infallible>:
         mut parser: impl Parser<In, Other, Reason>,
     ) -> impl Parser<In, (Out, Other), Reason> {
         move |src| {
-            let (rest, out) = self(src)?;
-            let (rest, new_out) = parser(rest)?;
-            Ok((rest, (out, new_out)))
+            let (rest, out) = self(src.clone())?;
+            match parser(rest) {
+                Ok((rest, new_out)) => Ok((rest, (out, new_out))),
+                Err(mut err) => {
+                    if err.is_recoverable() {
+                        err.rest = src;
+                    }
+                    Err(err)
+                }
+            }
         }
     }
 
@@ -307,9 +314,16 @@ pub trait Parser<In: Input, Out, Reason = Infallible>:
         Out: Tuple,
     {
         move |src| {
-            let (rest, out) = self(src)?;
-            let (rest, new_out) = parser(rest)?;
-            Ok((rest, out.append(new_out)))
+            let (rest, out) = self(src.clone())?;
+            match parser(rest) {
+                Ok((rest, new_out)) => Ok((rest, out.append(new_out))),
+                Err(mut err) => {
+                    if err.is_recoverable() {
+                        err.rest = src;
+                    }
+                    Err(err)
+                }
+            }
         }
     }
 
@@ -335,9 +349,13 @@ pub trait Parser<In: Input, Out, Reason = Infallible>:
         mut parser: impl Parser<In, NewOut, Reason>,
     ) -> impl Parser<In, NewOut, Reason> {
         move |src| {
-            let rest = self(src)?.0;
-            let (rest, out) = parser(rest)?;
-            Ok((rest, out))
+            let rest = self(src.clone())?.0;
+            parser(rest).map_err(|mut err| {
+                if err.is_recoverable() {
+                    err.rest = src;
+                }
+                err
+            })
         }
     }
 
@@ -350,13 +368,16 @@ pub trait Parser<In: Input, Out, Reason = Infallible>:
         mut parser: impl Parser<In, Skipped, Reason>,
     ) -> impl Parser<In, Out, Reason> {
         move |src| {
-            let (rest, out) = self(src)?;
-            let rest = match parser(rest) {
-                Ok((rest, _)) => rest,
-                Err(err) if err.is_recoverable() => err.rest,
-                Err(err) => return Err(err),
-            };
-            Ok((rest, out))
+            let (rest, out) = self(src.clone())?;
+            match parser(rest) {
+                Ok((rest, _)) => Ok((rest, out)),
+                Err(mut err) => {
+                    if err.is_recoverable() {
+                        err.rest = src;
+                    }
+                    Err(err)
+                }
+            }
         }
     }
 
