@@ -12,6 +12,9 @@ use {
     std::{fs::read_to_string, io},
 };
 
+#[expect(unused)] // for docs
+use crate::Parser;
+
 /// Error returned by a parser.
 ///
 /// A parsing error may be either recoverable or fatal, parser methods such as [`Parser::or`] allow
@@ -169,10 +172,6 @@ impl<In, Reason> ParsingError<In, Reason> {
 /// This should be constructed at the top-level of a parser as the final action before returning
 /// the result. Main ways to construct this are [`ParsingError::with_src_loc`] and
 /// [`Parser::with_full_error`]
-///
-/// To print the source line of the error along with the reason & location, use the value returned
-/// by its method [`with_source_line`](Self::with_source_line),
-/// this will alter its [`Display`] implementation.
 #[derive(Debug, Clone)]
 pub struct FullParsingError<'a, Reason> {
     /// Where the error occured.

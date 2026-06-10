@@ -34,7 +34,7 @@
 
 #![cfg_attr(
     feature = "nightly",
-    feature(unboxed_closures, fn_traits, tuple_trait, doc_auto_cfg)
+    feature(unboxed_closures, fn_traits, tuple_trait, doc_cfg)
 )]
 
 mod error;

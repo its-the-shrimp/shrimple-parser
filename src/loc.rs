@@ -47,9 +47,11 @@ impl TryFrom<proc_macro2::LineColumn> for Location {
     type Error = LineColumnToLocationError;
 
     fn try_from(value: proc_macro2::LineColumn) -> Result<Self, Self::Error> {
-        let line = u32::try_from(value.line).map_err(|_| LineColumnToLocationError::LineNumberTooBig)?;
+        let line =
+            u32::try_from(value.line).map_err(|_| LineColumnToLocationError::LineNumberTooBig)?;
         let line = NonZero::new(line).ok_or(LineColumnToLocationError::LineZero)?;
-        let col = u32::try_from(value.column).map_err(|_| LineColumnToLocationError::ColumnNumberTooBig)?;
+        let col = u32::try_from(value.column)
+            .map_err(|_| LineColumnToLocationError::ColumnNumberTooBig)?;
 
         Ok(Self { line, col })
     }
@@ -58,7 +60,10 @@ impl TryFrom<proc_macro2::LineColumn> for Location {
 #[cfg(feature = "proc-macro2")]
 impl From<Location> for proc_macro2::LineColumn {
     fn from(value: Location) -> Self {
-        Self { line: value.line.get() as usize, column: value.col as usize }
+        Self {
+            line: value.line.get() as usize,
+            column: value.col as usize,
+        }
     }
 }
 

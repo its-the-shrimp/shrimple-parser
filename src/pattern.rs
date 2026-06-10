@@ -9,7 +9,10 @@ use {
 };
 
 #[cfg(test)]
-use core::convert::Infallible;
+use {
+    crate::utils::char::{is_alphabetic, is_ascii_digit},
+    core::convert::Infallible,
+};
 
 /// This trait represents an object that can be matched onto a string.
 /// This includes functions, characters, [arrays of] characters, strings, but also custom patterns
@@ -138,6 +141,17 @@ pub trait Pattern {
         Self: Sized,
     {
         Union(self, other)
+    }
+
+    /// Combine `self` and another pattern into a pattern that matches both of them in a sequence,
+    /// with `self` before `other`
+    ///
+    /// Do not override this method.
+    fn and<Other: Pattern>(self, other: Other) -> Chain<Self, Other>
+    where
+        Self: Sized,
+    {
+        Chain(self, other)
     }
 
     /// Create a pattern that'll match `self` only if it's not escaped (immediately preceded)
@@ -639,9 +653,7 @@ impl Pattern for AnyChar {
 /// # Note
 /// If you want to match either of N chars, use an array of them as a pattern instead, as this
 /// struct has a general impl that may miss optimisations applicable to the case of `[char; N]`
-/// being the pattern. However, unlike the array pattern, the combination of patterns using this
-/// struct is not commutative, since the second pattern is only tried if the former has not been
-/// found in the input.
+/// being the pattern.
 #[derive(Debug, Clone, Copy)]
 pub struct Union<P1: Pattern, P2: Pattern>(pub P1, pub P2);
 
@@ -694,6 +706,138 @@ impl<P1: Pattern, P2: Pattern> Pattern for Union<P1, P2> {
         let (before, match_rest) = input.split_at(before_len);
         let (r#match, rest) = match_rest.split_at(match_len);
         Ok((rest, (before, r#match)))
+    }
+}
+
+/// A pattern that matches `P1` immediately followed by `P2`.
+///
+/// A match is only produced when **both** patterns match consecutively at
+/// the same position: `P1` at the current position and `P2` right after it.
+/// The combined match spans the entirety of both sub-matches.
+///
+/// # Note
+/// For `first_match` / `first_match_ex`, every occurrence of `P1` in the
+/// input is tried in left-to-right order; the first one where `P2`
+/// immediately follows is returned.  Occurrences of `P1` that are *not*
+/// followed by `P2` are skipped.
+///
+/// More conveniently created via [`Pattern::and`].
+///
+/// # Example
+/// ```rust
+/// # fn main() {
+/// use shrimple_parser::{
+///     pattern::{parse, parse_until_ex, Chain},
+///     utils::char::{is_ascii_digit, is_alphabetic},
+/// };
+/// use core::convert::Infallible;
+///
+/// // Matches a digit immediately followed by an alphabetic character.
+/// assert_eq!(
+///     parse::<_, Infallible>(Chain(is_ascii_digit, is_alphabetic))("3x rest"),
+///     Ok((" rest", "3x")),
+/// );
+///
+/// // Returns an error when the pattern is not at the start.
+/// assert!(
+///     parse::<_, Infallible>(Chain(is_ascii_digit, is_alphabetic))("x3 rest")
+///         .is_err()
+/// );
+///
+/// // Finds the first '$' that is immediately followed by '{'.
+/// assert_eq!(
+///     parse_until_ex::<_, Infallible>(Chain('$', '{'))("foo${bar}"),
+///     Ok(("bar}", "foo")),
+/// );
+/// # }
+/// ```
+#[derive(Debug, Clone, Copy)]
+pub struct Chain<P1: Pattern, P2: Pattern>(pub P1, pub P2);
+
+impl<P1: Pattern, P2: Pattern> Pattern for Chain<P1, P2> {
+    fn immediate_match<I: Input>(&self, input: I) -> Result<(I, I), I> {
+        // Try P1 at the start; keep the original `input` for the error path.
+        let rest_after_p1 = match self.0.immediate_match(input.clone()) {
+            Ok((rest, _)) => rest,
+            Err(_) => return Err(input),
+        };
+        // Try P2 immediately after P1.
+        match self.1.immediate_match(rest_after_p1) {
+            Ok((rest_after_p2, _)) => {
+                // The combined match spans from the start of `input` to the
+                // start of `rest_after_p2`.
+                let match_len = input.len() - rest_after_p2.len();
+                let (matched, rest) = input.split_at(match_len);
+                Ok((rest, matched))
+            }
+            Err(_) => Err(input),
+        }
+    }
+
+    fn trailing_match<I: Input>(&self, input: I) -> Result<(I, I), I> {
+        // First strip P2 from the end.
+        let before_p2 = match self.1.trailing_match(input.clone()) {
+            Ok((before, _)) => before,
+            Err(_) => return Err(input),
+        };
+        // Then strip P1 from the end of what remains.
+        match self.0.trailing_match(before_p2) {
+            Ok((before_p1, _)) => {
+                // `before_p1.len()` is the byte offset where the chain match
+                // starts inside `input`.
+                Ok(input.split_at(before_p1.len()))
+            }
+            Err(_) => Err(input),
+        }
+    }
+
+    fn first_match<I: Input>(&self, input: I) -> Result<(I, (I, I)), I> {
+        let mut rest = input.clone();
+        loop {
+            // Find the next P1, advancing `rest` past each failed candidate.
+            let (after_p1, (_, p1_match)) = match self.0.first_match_ex(rest) {
+                Ok(result) => result,
+                Err(_) => return Err(input),
+            };
+            // Check whether P2 immediately follows this P1.
+            match self.1.immediate_match(after_p1.clone()) {
+                Ok((after_p2, _)) => {
+                    // Reconstruct `before` and the chain match relative to the
+                    // original `input` using length arithmetic so that the
+                    // returned slices stay within the same allocation.
+                    let p1_start = input.len() - after_p1.len() - p1_match.len();
+                    let chain_len = p1_match.len() + after_p1.len() - after_p2.len();
+                    let (before, chain_and_rest) = input.split_at(p1_start);
+                    let chain = chain_and_rest.clone().before(chain_len);
+                    return Ok((chain_and_rest, (before, chain)));
+                }
+                // P2 did not follow this P1; advance past P1 and keep looking.
+                Err(_) => rest = after_p1,
+            }
+        }
+    }
+
+    fn first_match_ex<I: Input>(&self, input: I) -> Result<(I, (I, I)), I> {
+        let mut rest = input.clone();
+        loop {
+            // Find the next P1, advancing `rest` past each failed candidate.
+            let (after_p1, (_, p1_match)) = match self.0.first_match_ex(rest) {
+                Ok(result) => result,
+                Err(_) => return Err(input),
+            };
+            // Check whether P2 immediately follows this P1.
+            match self.1.immediate_match(after_p1.clone()) {
+                Ok((after_p2, _)) => {
+                    let p1_start = input.len() - after_p1.len() - p1_match.len();
+                    let chain_len = p1_match.len() + after_p1.len() - after_p2.len();
+                    let (before, chain_start) = input.split_at(p1_start);
+                    let chain = chain_start.before(chain_len);
+                    return Ok((after_p2, (before, chain)));
+                }
+                // P2 did not follow this P1; advance past P1 and keep looking.
+                Err(_) => rest = after_p1,
+            }
+        }
     }
 }
 
@@ -899,9 +1043,79 @@ fn array_pat() {
 
 #[test]
 fn union_pat() {
-    let src = "abc;def'xyz";
+    let src = "abc\\def'xyz;";
     assert_eq!(
         parse_until_ex::<_, Infallible>(';'.or('\''))(src),
         parse_until_ex([';', '\''])(src)
     );
+}
+
+#[test]
+fn chain_pattern_immediate_match_success() {
+    assert_eq!(
+        parse::<_, Infallible>(Chain('a', 'b'))("abcde"),
+        Ok(("cde", "ab")),
+    );
+}
+
+#[test]
+fn chain_pattern_immediate_match_p1_fails() {
+    assert_eq!(
+        parse::<_, Infallible>('a'.and('b'))("xbc"),
+        Err(ParsingError::new_recoverable("xbc")),
+    );
+}
+
+#[test]
+fn chain_pattern_immediate_match_p2_fails() {
+    assert_eq!(
+        parse::<_, Infallible>('a'.and('b'))("axc"),
+        Err(ParsingError::new_recoverable("axc")),
+    );
+}
+
+#[test]
+fn chain_pattern_immediate_match_predicate_patterns() {
+    assert_eq!(
+        parse::<_, Infallible>(is_ascii_digit.and(is_alphabetic))("3x rest"),
+        Ok((" rest", "3x")),
+    );
+}
+
+#[test]
+fn chain_pattern_first_match_ex_found_immediately() {
+    assert_eq!(
+        parse_until_ex::<_, Infallible>('$'.and('{'))("${bar}"),
+        Ok(("bar}", "")),
+    );
+}
+
+#[test]
+fn chain_pattern_first_match_ex_skips_p1_without_p2() {
+    assert_eq!(
+        parse_until_ex::<_, Infallible>('a'.and('b'))("xaabyz"),
+        Ok(("yz", "xa")),
+    );
+}
+
+#[test]
+fn chain_pattern_first_match_ex_string_patterns() {
+    assert_eq!(
+        parse_until_ex::<_, Infallible>('$'.and('{'))("foo${bar}"),
+        Ok(("bar}", "foo")),
+    );
+}
+
+#[test]
+fn chain_pattern_first_match_ex_no_match() {
+    // No 'a' is ever immediately followed by 'b'.
+    assert!(parse_until_ex::<_, Infallible>('a'.and('b'))("xaxcyz").is_err());
+}
+
+#[test]
+fn chain_pattern_first_match_not_first_p1_match() {
+    assert_eq!(
+        parse_until_ex::<_, Infallible>('a'.and("--"))("aaaa--aaa"),
+        Ok(("aaa", "aaa")),
+    )
 }
