@@ -91,7 +91,7 @@ pub trait Parser<In: Input, Out, Reason = Infallible>:
     /// The argument is a function that maps the input & the current output of the parser to the
     /// rest of the input & the new output.
     ///
-    /// See [`match_out`]
+    /// See [`crate::match_out`]
     fn map<NewOut>(
         mut self,
         mut parser: impl MappingParser<In, Out, NewOut, Reason>,

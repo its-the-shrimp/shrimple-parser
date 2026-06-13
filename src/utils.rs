@@ -153,3 +153,40 @@ macro_rules! match_out {
         }
     };
 }
+
+/// Create a sequence of parsers or patterns.
+///
+/// ```rust
+/// # use {
+///     shrimple_parser::{seq, parser::one, Pattern, Parser, ParsingResult},
+///     std::convert::Infallible,
+/// };
+/// 
+/// # let res: ParsingResult<_, _, Infallible> = 
+/// seq!(
+///     one(seq!('a', 'b', 'c')),
+///     one('d'),
+/// )
+/// # .parse("abcd");
+/// # res.unwrap();
+/// ```
+///
+/// Is the same as 
+/// ```rust
+/// # use {
+///     shrimple_parser::{seq, parser::one, Pattern, Parser, ParsingResult},
+///     std::convert::Infallible,
+/// };
+/// 
+/// # let res: ParsingResult<_, _, Infallible> = 
+/// one('a'.and('b').and('c'))
+///     .and(one('d'))
+/// #   .parse("abcd");
+/// #   res.unwrap();
+/// ```
+#[macro_export]
+macro_rules! seq {
+    ($first:expr, $($rest:expr),* $(,)?) => {
+        $first $(.and($rest))*
+    };
+}

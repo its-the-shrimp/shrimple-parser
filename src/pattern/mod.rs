@@ -172,6 +172,22 @@ pub trait Pattern {
     {
         NotEnclosed(enc, self)
     }
+
+    /// Creates a greedy pattern that matches `self` as many times as possible. See [`Many`]
+    fn many(self) -> Many<Self> 
+    where
+        Self: Sized,
+    {
+        Many(self)
+    }
+
+    /// Creates a pattern that matches `self` 0 or 1 times. See [`Maybe`]
+    fn maybe(self) -> Maybe<Self>
+    where
+        Self: Sized,
+    {
+        Maybe(self)
+    }
 }
 
 impl<F: Fn(char) -> bool> Pattern for F {
@@ -864,6 +880,179 @@ impl<P1: Pattern, P2: Pattern> Pattern for Chain<P1, P2> {
     }
 }
 
+/// A pattern that matches any number of contiguous occurrences of the inner pattern `T`,
+/// including 0.
+///
+/// Because 0 occurrences is always a valid match, [`Many`] never fails: [`Pattern::immediate_match`]
+/// and [`Pattern::trailing_match`] always return [`Ok`], and [`Pattern::first_match`] /
+/// [`Pattern::first_match_ex`] always match at the very start of the input (with a possibly
+/// empty match).
+///
+/// More conveniently created via [`Pattern::many`]
+///
+/// # Example
+/// ```rust
+/// # fn main() {
+/// use {
+///     shrimple_parser::{
+///         Pattern,
+///         parser::one,
+///         pattern::{ascii_digit, Many},
+///     },
+///     core::convert::Infallible,
+/// };
+///
+/// // Matches 0 or more ASCII digits from the start of the input.
+/// assert_eq!(
+///     one::<_, Infallible>(ascii_digit.many())("123abc"),
+///     Ok(("abc", "123")),
+/// );
+///
+/// // 0 matches is still a match, with an empty matched fragment.
+/// assert_eq!(
+///     one::<_, Infallible>(ascii_digit.many())("abc"),
+///     Ok(("abc", "")),
+/// );
+/// # }
+/// ```
+#[derive(Debug, Clone, Copy)]
+pub struct Many<T: Pattern>(pub T);
+
+impl<T: Pattern> Pattern for Many<T> {
+    fn immediate_match<I: Input>(&self, input: I) -> Result<(I, I), I> {
+        Ok(self.0.immediate_matches(input))
+    }
+
+    /// Repeating "0 or more `T`" is the same as "0 or more `T`", so this delegates directly to
+    /// `T`'s implementation rather than looping on [`Pattern::immediate_match`], which would
+    /// never terminate since [`Many::immediate_match`] never fails.
+    fn immediate_matches<I: Input>(&self, input: I) -> (I, I) {
+        self.0.immediate_matches(input)
+    }
+
+    fn immediate_matches_counted<I: Input>(&self, input: I) -> (I, (I, usize)) {
+        self.0.immediate_matches_counted(input)
+    }
+
+    fn trailing_match<I: Input>(&self, input: I) -> Result<(I, I), I> {
+        let (rest, _) = self.0.trailing_matches_counted(input.clone());
+        let rest_len = rest.len();
+        Ok(input.split_at(rest_len))
+    }
+
+    /// See [`Many::immediate_matches`] for why this delegates straight to `T` instead of
+    /// looping on [`Pattern::trailing_match`].
+    fn trailing_matches_counted<I: Input>(&self, input: I) -> (I, usize) {
+        self.0.trailing_matches_counted(input)
+    }
+
+    fn first_match<I: Input>(&self, input: I) -> Result<(I, (I, I)), I> {
+        let (after_first, (before, first)) = self.0.first_match_ex(input.clone())?;
+        let (_, more) = self.0.immediate_matches(after_first);
+
+        let before_len = before.len();
+        let match_len = first.len() + more.len();
+
+        let (before, match_and_rest) = input.split_at(before_len);
+        let matched = match_and_rest.clone().before(match_len);
+        Ok((match_and_rest, (before, matched)))
+    }
+
+    fn first_match_ex<I: Input>(&self, input: I) -> Result<(I, (I, I)), I> {
+        let (after_first, (before, first)) = self.0.first_match_ex(input.clone())?;
+        let (_, more) = self.0.immediate_matches(after_first);
+
+        let before_len = before.len();
+        let match_len = first.len() + more.len();
+
+        let (before, match_and_rest) = input.split_at(before_len);
+        let (matched, rest) = match_and_rest.split_at(match_len);
+        Ok((rest, (before, matched)))
+    }
+}
+
+/// A pattern that matches 0 or 1 occurrences of the inner pattern `T`, making it optional.
+///
+/// Because both 0 and 1 occurrences are valid matches, [`Maybe`] never fails:
+/// [`Pattern::immediate_match`] and [`Pattern::trailing_match`] always return [`Ok`], falling
+/// back to an empty match at the relevant end of the input if `T` doesn't match there. Likewise,
+/// [`Pattern::first_match`] / [`Pattern::first_match_ex`] always match at the very start of the
+/// input.
+///
+/// More conveniently created via [`Pattern::maybe`]
+///
+/// # Example
+/// ```rust
+/// # fn main() {
+/// use {
+///     shrimple_parser::{
+///         Pattern,
+///         parser::one,
+///         pattern::Maybe,
+///     },
+///     core::convert::Infallible,
+/// };
+///
+/// // Matches an optional '-' sign at the start of the input.
+/// assert_eq!(
+///     one::<_, Infallible>('-'.maybe())("-123"),
+///     Ok(("123", "-")),
+/// );
+///
+/// // No '-' present - still matches, with an empty matched fragment.
+/// assert_eq!(
+///     one::<_, Infallible>('-'.maybe())("123"),
+///     Ok(("123", "")),
+/// );
+/// # }
+/// ```
+#[derive(Debug, Clone, Copy)]
+pub struct Maybe<T: Pattern>(pub T);
+
+impl<T: Pattern> Pattern for Maybe<T> {
+    fn immediate_match<I: Input>(&self, input: I) -> Result<(I, I), I> {
+        self.0
+            .immediate_match(input)
+            .or_else(|input| Ok(input.split_at(0).rev()))
+    }
+
+    /// Repeating "0 or 1 `T`" is the same as "0 or more `T`", so this delegates directly to
+    /// `T`'s implementation rather than looping on [`Pattern::immediate_match`], which would
+    /// never terminate since [`Maybe::immediate_match`] never fails.
+    fn immediate_matches<I: Input>(&self, input: I) -> (I, I) {
+        self.0.immediate_matches(input)
+    }
+
+    fn immediate_matches_counted<I: Input>(&self, input: I) -> (I, (I, usize)) {
+        self.0.immediate_matches_counted(input)
+    }
+
+    fn trailing_match<I: Input>(&self, input: I) -> Result<(I, I), I> {
+        self.0.trailing_match(input).or_else(|input| {
+            let len = input.len();
+            Ok(input.split_at(len))
+        })
+    }
+
+    /// See [`Maybe::immediate_matches`] for why this delegates straight to `T` instead of
+    /// looping on [`Pattern::trailing_match`].
+    fn trailing_matches_counted<I: Input>(&self, input: I) -> (I, usize) {
+        self.0.trailing_matches_counted(input)
+    }
+
+    fn first_match<I: Input>(&self, input: I) -> Result<(I, (I, I)), I> {
+        let (_, matched) = self.immediate_match(input.clone())?;
+        let before = input.clone().before(0);
+        Ok((input, (before, matched)))
+    }
+
+    fn first_match_ex<I: Input>(&self, input: I) -> Result<(I, (I, I)), I> {
+        let (rest, matched) = self.immediate_match(input.clone())?;
+        let before = input.before(0);
+        Ok((rest, (before, matched)))
+    }
+}
+
 #[test]
 fn char_pat() {
     assert_eq!(
@@ -975,4 +1164,69 @@ fn chain_pattern_first_match_not_first_p1_match() {
         until_ex::<_, Infallible>('a'.and("--"))("aaaa--aaa"),
         Ok(("aaa", "aaa")),
     )
+}
+
+#[test]
+fn many_matches_zero_or_more() {
+    assert_eq!(
+        one::<_, Infallible>(ascii_digit.many())("123abc"),
+        Ok(("abc", "123")),
+    );
+    assert_eq!(
+        one::<_, Infallible>(ascii_digit.many())("abc"),
+        Ok(("abc", "")),
+    );
+}
+
+#[test]
+fn many_chains_with_other_patterns() {
+    // "1" or more digits followed by an alphabetic character.
+    assert_eq!(
+        one::<_, Infallible>(ascii_digit.and(ascii_digit.many()))("123abc"),
+        Ok(("abc", "123")),
+    );
+}
+
+#[test]
+fn many_used_in_until_ex() {
+    assert_eq!(
+        until_ex::<_, Infallible>(ascii_digit.many().and(';'))("abc123;rest"),
+        Ok(("rest", "abc")),
+    );
+}
+
+#[test]
+fn maybe_matches_zero_or_one() {
+    assert_eq!(
+        one::<_, Infallible>('-'.maybe())("-123"),
+        Ok(("123", "-")),
+    );
+    assert_eq!(
+        one::<_, Infallible>('-'.maybe())("123"),
+        Ok(("123", "")),
+    );
+}
+
+#[test]
+fn maybe_chains_with_other_patterns() {
+    assert_eq!(
+        one::<_, Infallible>('-'.maybe().and(ascii_digit).and(ascii_digit.many()))("-123abc"),
+        Ok(("abc", "-123")),
+    );
+    assert_eq!(
+        one::<_, Infallible>('-'.many().and(ascii_digit).and(ascii_digit.many()))("123abc"),
+        Ok(("abc", "123")),
+    );
+}
+
+#[test]
+fn maybe_pattern_immediate_match_p1_fails() {
+    assert_eq!(
+        one::<_, Infallible>('-'.maybe().and('1'))("1xyz"),
+        Ok(("xyz", "1")),
+    );
+    assert_eq!(
+        one::<_, Infallible>('-'.maybe().and('1'))("2xyz"),
+        Err(ParsingError::new_recoverable("2xyz")),
+    );
 }
