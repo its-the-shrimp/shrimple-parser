@@ -1,16 +1,24 @@
 //! Abstractions for working with patterns.
 
+mod char_predicates;
+mod into_pattern;
+
+pub use {
+    char_predicates::*,
+    into_pattern::*,
+};
+
 use {
-    crate::{
-        tuple::{first, map_second, Tuple},
-        Input, Parser, ParsingError,
-    },
+    crate::{tuple::Tuple, Input},
     core::ops::Not,
 };
 
 #[cfg(test)]
 use {
-    crate::utils::char::{is_alphabetic, is_ascii_digit},
+    crate::{
+        parser::{one, until_ex, Parser},
+        error::ParsingError,
+    },
     core::convert::Infallible,
 };
 
@@ -28,14 +36,14 @@ pub trait Pattern {
     /// # Errors
     /// In the case of no match, the original `input` is returned as the [`Err`] variant.
     ///
-    /// Used by [`parse`].
+    /// Used by [`crate::parser::one`].
     fn immediate_match<I: Input>(&self, input: I) -> Result<(I, I), I>;
 
     /// The return values are (rest of the input, contiguous matched fragments from the beginning).
     ///
     /// 0 is also a valid number of matches.
     ///
-    /// Used by [`parse_while`]
+    /// Used by [`crate::parser::many`]
     #[expect(
         clippy::unwrap_used,
         reason = "this will only panic if the pattern does"
@@ -114,7 +122,7 @@ pub trait Pattern {
     /// # Errors
     /// Returns the provided `input` unchanged in the [`Err`] variant if there's no match.
     ///
-    /// Used by [`parse_until`].
+    /// Used by [`crate::parser::until`].
     fn first_match<I: Input>(&self, input: I) -> Result<(I, (I, I)), I>;
 
     /// Like [`Pattern::first_match`], but the match is excluded from the rest of the input.
@@ -122,7 +130,7 @@ pub trait Pattern {
     /// # Errors
     /// Returns the provided `input` unchanged in the [`Err`] variant if there's no match.
     ///
-    /// Used by [`parse_until_ex`].
+    /// Used by [`crate::parser::until_ex`].
     fn first_match_ex<I: Input>(&self, input: I) -> Result<(I, (I, I)), I>;
 
     /// Get the pattern by reference to avoid moving it, which will happen in generic code
@@ -130,17 +138,6 @@ pub trait Pattern {
     /// Do not override this method.
     fn by_ref(&self) -> Ref<'_, Self> {
         Ref(self)
-    }
-
-    /// Combine `self` and another pattern into a pattern that matches either of them in a
-    /// short-circuiting manner, with `self` tried first.
-    ///
-    /// Do not override this method.
-    fn or<Other: Pattern>(self, other: Other) -> Union<Self, Other>
-    where
-        Self: Sized,
-    {
-        Union(self, other)
     }
 
     /// Combine `self` and another pattern into a pattern that matches both of them in a sequence,
@@ -156,6 +153,8 @@ pub trait Pattern {
 
     /// Create a pattern that'll match `self` only if it's not escaped (immediately preceded)
     /// by the provided pattern.
+    ///
+    /// Do not override this method.
     fn not_escaped_by<Prefix: Pattern>(self, prefix: Prefix) -> NotEscaped<Prefix, Self>
     where
         Self: Sized,
@@ -165,6 +164,8 @@ pub trait Pattern {
 
     /// Create a pattern that'll match `self` only if it's not enclosed (preceded & superceded) by
     /// the provided pattern.
+    ///
+    /// Do not override this method.
     fn not_enclosed_by<Enclosure: Pattern>(self, enc: Enclosure) -> NotEnclosed<Enclosure, Self>
     where
         Self: Sized,
@@ -231,9 +232,8 @@ impl<F: Fn(char) -> bool> Pattern for F {
 }
 
 /// This is a specialised, optimised impl for matching any `char` in the array. For a more general
-/// pattern combinator, use the [`Union`] pattern by calling the [`Pattern::or`] method
+/// pattern combinator, use a tuple.
 impl<const N: usize> Pattern for [char; N] {
-    // TODO: specialise for `[char; N]`
     fn immediate_match<I: Input>(&self, input: I) -> Result<(I, I), I> {
         match input.strip_prefix(self) {
             Some(rest) => {
@@ -619,16 +619,27 @@ impl<Enclosure: Pattern, Inner: Pattern> Pattern for NotEnclosed<Enclosure, Inne
     }
 }
 
-/// A pattern that matches anything.
+/// A pattern that matches any 1 character.
 #[derive(Clone, Copy)]
-pub struct AnyChar;
+pub struct Any;
 
-impl Pattern for AnyChar {
+impl Pattern for Any {
     fn immediate_match<I: Input>(&self, input: I) -> Result<(I, I), I> {
         match input.chars().next() {
             Some(ch) => Ok(input.split_at(ch.len_utf8()).rev()),
             None => Err(input),
         }
+    }
+
+    fn immediate_matches<I: Input>(&self, input: I) -> (I, I) {
+        let input_len = input.len();
+        input.split_at(input_len).rev()
+    }
+
+    fn immediate_matches_counted<I: Input>(&self, input: I) -> (I, (I, usize)) {
+        let input_len = input.len();
+        let input_n_chars = input.chars().count();
+        input.split_at(input_len).rev().map_second(|matched| (matched, input_n_chars))
     }
 
     fn trailing_match<I: Input>(&self, input: I) -> Result<(I, I), I> {
@@ -638,26 +649,35 @@ impl Pattern for AnyChar {
         }
     }
 
+    fn trailing_matches_counted<I: Input>(&self, input: I) -> (I, usize) {
+        let input_n_chars = input.chars().count();
+        (input.start(), input_n_chars)
+    }
+
     fn first_match<I: Input>(&self, input: I) -> Result<(I, (I, I)), I> {
-        Ok((input.clone(), (I::default(), input)))
+        let first_char_len = input.chars().next().map_or(0, char::len_utf8);
+        let before = input.clone().start();
+        let first_char_span = input.clone().before(first_char_len);
+        Ok((input, (before, first_char_span)))
     }
 
     fn first_match_ex<I: Input>(&self, input: I) -> Result<(I, (I, I)), I> {
-        Ok((I::default(), (I::default(), input)))
+        let first_char_len = input.chars().next().map_or(0, char::len_utf8);
+        let before = input.clone().start();
+        let (first_char_span, after) = input.split_at(first_char_len);
+        Ok((after, (before, first_char_span)))
     }
 }
 
-/// A pattern that matches either of the 2 patterns in a short-circuiting manner,
-/// with `self` tried first. May be created by [`Pattern::or`] for convenience.
+/// A tuple pattern matches either of the 2 patterns in a short-circuiting & commutative manner,
+/// with `self` tried first. Tuples of more than 2 elements can be turned into a pattern via
+/// the [`IntoPattern`] trait.
 ///
-/// # Note
+/// # Performance
 /// If you want to match either of N chars, use an array of them as a pattern instead, as this
 /// struct has a general impl that may miss optimisations applicable to the case of `[char; N]`
 /// being the pattern.
-#[derive(Debug, Clone, Copy)]
-pub struct Union<P1: Pattern, P2: Pattern>(pub P1, pub P2);
-
-impl<P1: Pattern, P2: Pattern> Pattern for Union<P1, P2> {
+impl<P1: Pattern, P2: Pattern> Pattern for (P1, P2) {
     fn immediate_match<I: Input>(&self, input: I) -> Result<(I, I), I> {
         self.0
             .immediate_match(input)
@@ -726,27 +746,30 @@ impl<P1: Pattern, P2: Pattern> Pattern for Union<P1, P2> {
 /// # Example
 /// ```rust
 /// # fn main() {
-/// use shrimple_parser::{
-///     pattern::{parse, parse_until_ex, Chain},
-///     utils::char::{is_ascii_digit, is_alphabetic},
+/// use {
+///     shrimple_parser::{
+///         Pattern,
+///         parser::{one, until_ex},
+///         pattern::{ascii_digit, alphabetic, Chain},
+///     },
+///     core::convert::Infallible,
 /// };
-/// use core::convert::Infallible;
 ///
 /// // Matches a digit immediately followed by an alphabetic character.
 /// assert_eq!(
-///     parse::<_, Infallible>(Chain(is_ascii_digit, is_alphabetic))("3x rest"),
+///     one::<_, Infallible>(ascii_digit.and(alphabetic))("3x rest"),
 ///     Ok((" rest", "3x")),
 /// );
 ///
 /// // Returns an error when the pattern is not at the start.
 /// assert!(
-///     parse::<_, Infallible>(Chain(is_ascii_digit, is_alphabetic))("x3 rest")
+///     one::<_, Infallible>(ascii_digit.and(alphabetic))("x3 rest")
 ///         .is_err()
 /// );
 ///
 /// // Finds the first '$' that is immediately followed by '{'.
 /// assert_eq!(
-///     parse_until_ex::<_, Infallible>(Chain('$', '{'))("foo${bar}"),
+///     until_ex::<_, Infallible>('$'.and('{'))("foo${bar}"),
 ///     Ok(("bar}", "foo")),
 /// );
 /// # }
@@ -841,176 +864,10 @@ impl<P1: Pattern, P2: Pattern> Pattern for Chain<P1, P2> {
     }
 }
 
-/// Parses 1 instance of pattern `pat`.
-///
-/// # Errors
-/// The returned parser returns a recoverable error if the pattern didn't match at the beginning of
-/// the input.
-pub fn parse<In: Input, Reason>(pat: impl Pattern) -> impl Parser<In, In, Reason> {
-    move |input| {
-        pat.immediate_match(input)
-            .map_err(ParsingError::new_recoverable)
-    }
-}
-
-/// Parses contiguous instances of pattern `pat`.
-///
-/// The returned parser never returns an error, if no matches are found at the start of the input,
-/// the returned string is empty (but also points to the start of the input)
-///
-/// See also [`parse_until`], [`parse_until_ex`].
-pub fn parse_while<In: Input, Reason>(pat: impl Pattern) -> impl Parser<In, In, Reason> {
-    move |input| Ok(pat.immediate_matches(input))
-}
-
-/// Parses a span of the input until a match of pattern `pat` is met.
-///
-/// The returned rest of the input will still have the match.
-///
-/// The returned parser never returns an error, if `pred` returns `false` for all the characters
-/// in the input, then the output is the entire input, and the rest of the input is an empty string.
-///
-/// See also [`parse_while`], [`parse_until_ex`].
-pub fn parse_until<In: Input, Reason>(pat: impl Pattern) -> impl Parser<In, In, Reason> {
-    move |input| {
-        Ok({
-            pat.first_match(input)
-                .map_or_else(|input| (In::default(), input), map_second(first))
-        })
-    }
-}
-
-/// Like [`parse_until`], but also removes the match of `pat` from the rest of the input.
-///
-/// # Errors
-/// Unlike [`parse_until`], this parser returns a recoverable error if `pred` returned `false` for
-/// all the characters in the input.
-pub fn parse_until_ex<In: Input, Reason>(pat: impl Pattern) -> impl Parser<In, In, Reason> {
-    move |input| {
-        pat.first_match_ex(input)
-            .map(map_second(first))
-            .map_err(ParsingError::new_recoverable)
-    }
-}
-
-/// Parse a balanced group of `open` & `close` patterns.
-///
-/// The start & end of the group are <u>included</u> in the output.
-/// See [`parse_group_ex`] for a parser that excludes them.
-///
-/// # Errors
-/// - If no initial `open` was found, a recoverable error is returned.
-/// - If the end was reached before a matching `close` pattern, a fatal error is returned.
-///
-/// An example use of this is parsing balanced parentheses:
-/// ```rust
-/// # fn main() {
-/// use shrimple_parser::{pattern::parse_group, ParsingError};
-/// let src = "(foo ()) bar";
-/// assert_eq!(parse_group('(', ')')(src), Ok((" bar", "(foo ())")));
-///
-/// let src = "(oops";
-/// assert_eq!(parse_group('(', ')')(src), Err(ParsingError::new("oops", ())));
-/// # }
-/// ```
-pub fn parse_group<In: Input>(open: impl Pattern, close: impl Pattern) -> impl Parser<In, In, ()> {
-    move |input| {
-        let Ok((mut rest, _)) = open.immediate_match(&*input) else {
-            return Err(ParsingError::new_recoverable(input));
-        };
-        let mut nesting = 1;
-        while nesting > 0 {
-            let (after_open, (before_open, open)) =
-                open.first_match_ex(rest).unwrap_or(("", (rest, "")));
-            let (after_close, (before_close, close)) =
-                close.first_match_ex(rest).unwrap_or(("", (rest, "")));
-
-            if [open, close] == ["", ""] {
-                // neither `open` nor `close` matched, and nesting > 0
-                let rest_start = input.len() - rest.len();
-                return Err(ParsingError::new(input.after(rest_start), ()));
-            }
-
-            if before_open.len() < before_close.len() {
-                rest = after_open;
-                nesting += 1;
-            } else {
-                rest = after_close;
-                nesting -= 1;
-            }
-        }
-
-        let res_len = input.len() - rest.len();
-        Ok(input.split_at(res_len).rev())
-    }
-}
-
-/// Parse a balanced group of `open` & `close` patterns.
-///
-/// The start & end of the group are <u>excluded</u> in the output.
-/// See [`parse_group`] for a parser that includes them.
-///
-/// # Errors
-/// - If no initial `open` was found, a recoverable error is returned.
-/// - If the end was reached before a matching `close` pattern, a fatal error is returned.
-///
-/// An example use of this is parsing balanced parentheses:
-/// ```rust
-/// # fn main() {
-/// use shrimple_parser::{pattern::parse_group_ex, ParsingError};
-/// let src = "(foo ()) bar";
-/// assert_eq!(parse_group_ex('(', ')')(src), Ok((" bar", "foo ()")));
-///
-/// let src = "(oops";
-/// assert_eq!(parse_group_ex('(', ')')(src), Err(ParsingError::new("oops", ())));
-/// # }
-/// ```
-pub fn parse_group_ex<In: Input>(
-    open: impl Pattern,
-    close: impl Pattern,
-) -> impl Parser<In, In, ()> {
-    move |input| {
-        let input = match open.immediate_match(input) {
-            Ok((rest, _)) => rest,
-            Err(input) => return Err(ParsingError::new_recoverable(input)),
-        };
-        let mut rest = &*input;
-        let mut nesting = 1;
-        let mut close_len = 0;
-        while nesting > 0 {
-            let (after_open, (before_open, open)) =
-                open.first_match_ex(rest).unwrap_or(("", (rest, "")));
-            let (after_close, (before_close, close)) =
-                close.first_match_ex(rest).unwrap_or(("", (rest, "")));
-
-            if [open, close] == ["", ""] {
-                // neither `open` nor `close` matched, and nesting > 0
-                let rest_start = input.len() - rest.len();
-                return Err(ParsingError::new(input.after(rest_start), ()));
-            }
-
-            if before_open.len() < before_close.len() {
-                rest = after_open;
-                nesting += 1;
-            } else {
-                rest = after_close;
-                close_len = close.len();
-                nesting -= 1;
-            }
-        }
-
-        let res_len = input.len() - rest.len() - close_len;
-        Ok(input
-            .split_at(res_len)
-            .map_second(|rest| rest.after(close_len))
-            .rev())
-    }
-}
-
 #[test]
 fn char_pat() {
     assert_eq!(
-        parse_until_ex::<_, Infallible>('"')
+        until_ex::<_, Infallible>('"')
             .parse(r#"this is what they call a \"test\", right?" - he said"#),
         Ok((
             r#"test\", right?" - he said"#,
@@ -1022,7 +879,7 @@ fn char_pat() {
 #[test]
 fn not_escaped_pat() {
     assert_eq!(
-        parse_until_ex::<_, Infallible>(NotEscaped('\\', '"'))
+        until_ex::<_, Infallible>(NotEscaped('\\', '"'))
             .parse(r#"this is what they call a \"test\", right?" - he said"#),
         Ok((" - he said", r#"this is what they call a \"test\", right?"#)),
     );
@@ -1030,13 +887,13 @@ fn not_escaped_pat() {
 
 #[test]
 fn str_pat() {
-    assert_eq!(parse::<_, Infallible>("abc")("abcdef"), Ok(("def", "abc")));
+    assert_eq!(one::<_, Infallible>("abc")("abcdef"), Ok(("def", "abc")));
 }
 
 #[test]
 fn array_pat() {
     assert_eq!(
-        parse_until_ex::<_, Infallible>([';', '\''])("abc;def'xyz"),
+        until_ex::<_, Infallible>([';', '\''])("abc;def'xyz"),
         Ok(("def'xyz", "abc"))
     );
 }
@@ -1045,15 +902,15 @@ fn array_pat() {
 fn union_pat() {
     let src = "abc\\def'xyz;";
     assert_eq!(
-        parse_until_ex::<_, Infallible>(';'.or('\''))(src),
-        parse_until_ex([';', '\''])(src)
+        until_ex::<_, Infallible>((';', '\''))(src),
+        until_ex([';', '\''])(src)
     );
 }
 
 #[test]
 fn chain_pattern_immediate_match_success() {
     assert_eq!(
-        parse::<_, Infallible>(Chain('a', 'b'))("abcde"),
+        one::<_, Infallible>('a'.and('b'))("abcde"),
         Ok(("cde", "ab")),
     );
 }
@@ -1061,7 +918,7 @@ fn chain_pattern_immediate_match_success() {
 #[test]
 fn chain_pattern_immediate_match_p1_fails() {
     assert_eq!(
-        parse::<_, Infallible>('a'.and('b'))("xbc"),
+        one::<_, Infallible>('a'.and('b'))("xbc"),
         Err(ParsingError::new_recoverable("xbc")),
     );
 }
@@ -1069,7 +926,7 @@ fn chain_pattern_immediate_match_p1_fails() {
 #[test]
 fn chain_pattern_immediate_match_p2_fails() {
     assert_eq!(
-        parse::<_, Infallible>('a'.and('b'))("axc"),
+        one::<_, Infallible>('a'.and('b'))("axc"),
         Err(ParsingError::new_recoverable("axc")),
     );
 }
@@ -1077,7 +934,7 @@ fn chain_pattern_immediate_match_p2_fails() {
 #[test]
 fn chain_pattern_immediate_match_predicate_patterns() {
     assert_eq!(
-        parse::<_, Infallible>(is_ascii_digit.and(is_alphabetic))("3x rest"),
+        one::<_, Infallible>(ascii_digit.and(alphabetic))("3x rest"),
         Ok((" rest", "3x")),
     );
 }
@@ -1085,15 +942,15 @@ fn chain_pattern_immediate_match_predicate_patterns() {
 #[test]
 fn chain_pattern_first_match_ex_found_immediately() {
     assert_eq!(
-        parse_until_ex::<_, Infallible>('$'.and('{'))("${bar}"),
-        Ok(("bar}", "")),
+        one::<_, Infallible>('$'.and('{'))("${bar}"),
+        Ok(("bar}", "${")),
     );
 }
 
 #[test]
 fn chain_pattern_first_match_ex_skips_p1_without_p2() {
     assert_eq!(
-        parse_until_ex::<_, Infallible>('a'.and('b'))("xaabyz"),
+        until_ex::<_, Infallible>('a'.and('b'))("xaabyz"),
         Ok(("yz", "xa")),
     );
 }
@@ -1101,7 +958,7 @@ fn chain_pattern_first_match_ex_skips_p1_without_p2() {
 #[test]
 fn chain_pattern_first_match_ex_string_patterns() {
     assert_eq!(
-        parse_until_ex::<_, Infallible>('$'.and('{'))("foo${bar}"),
+        until_ex::<_, Infallible>('$'.and('{'))("foo${bar}"),
         Ok(("bar}", "foo")),
     );
 }
@@ -1109,13 +966,13 @@ fn chain_pattern_first_match_ex_string_patterns() {
 #[test]
 fn chain_pattern_first_match_ex_no_match() {
     // No 'a' is ever immediately followed by 'b'.
-    assert!(parse_until_ex::<_, Infallible>('a'.and('b'))("xaxcyz").is_err());
+    assert!(until_ex::<_, Infallible>('a'.and('b'))("xaxcyz").is_err());
 }
 
 #[test]
 fn chain_pattern_first_match_not_first_p1_match() {
     assert_eq!(
-        parse_until_ex::<_, Infallible>('a'.and("--"))("aaaa--aaa"),
+        until_ex::<_, Infallible>('a'.and("--"))("aaaa--aaa"),
         Ok(("aaa", "aaa")),
     )
 }

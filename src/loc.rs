@@ -1,13 +1,14 @@
 extern crate alloc;
 
 use {
-    crate::{nonzero, utils::PathLike},
+    crate::{nonzero, utils::PathLike, FullParsingError},
     alloc::borrow::Cow,
     core::{
         char::REPLACEMENT_CHARACTER,
         fmt::{Display, Formatter, Write},
         num::NonZero,
     },
+    std::{convert::Infallible, fs::read_to_string, path::Path},
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -194,8 +195,8 @@ impl Location {
 /// Like [`Location`], but also stores the path to the file.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct FullLocation<'path> {
-    /// The path to the file associated with the location.
-    pub path: Cow<'path, [u8]>,
+    /// The path to the file associated with the location, stored as bytes
+    path: Cow<'path, [u8]>,
     /// The line & column numbers of the location.
     pub loc: Location,
 }
@@ -212,7 +213,33 @@ impl Display for FullLocation<'_> {
     }
 }
 
-impl FullLocation<'_> {
+impl<'path> FullLocation<'path> {
+    /// The path to the file to which the location points
+    pub fn path(&self) -> &Path {
+        #[cfg(unix)]
+        let res = <std::ffi::OsStr as std::os::unix::ffi::OsStrExt>::from_bytes(&self.path);
+
+        #[cfg(not(unix))]
+        let res = str::from_utf8(&self.path).expect("UTF-8 path when calling FullLocation::path");
+
+        Path::new(res)
+    }
+
+    /// Returns an object that will display the location along with the line of the source code
+    /// that it points to, Rust style
+    pub fn with_source_line(&self) -> impl Display + '_ {
+        let src = read_to_string(self.path()).unwrap_or_default();
+
+        FullParsingError::<Infallible> {
+            loc: FullLocation {
+                path: Cow::Borrowed(&self.path),
+                loc: self.loc,
+            },
+            reason: None,
+            src: src.into(),
+        }
+    }
+
     /// Unbind the location from the lifetimes by allocating the path if it hasn't been already.
     pub fn own(self) -> FullLocation<'static> {
         FullLocation {

@@ -153,36 +153,3 @@ macro_rules! match_out {
         }
     };
 }
-
-macro_rules! make_char_fns {
-    ($(fn $name:ident;)+) => {
-        $(
-            pub fn $name(c: char) -> bool {
-                c.$name()
-            }
-        )+
-    };
-}
-
-pub mod char {
-    make_char_fns! {
-        fn is_alphabetic;
-        fn is_alphanumeric;
-        fn is_control;
-        fn is_numeric;
-        fn is_lowercase;
-        fn is_uppercase;
-        fn is_whitespace;
-        fn is_ascii;
-        fn is_ascii_alphabetic;
-        fn is_ascii_uppercase;
-        fn is_ascii_lowercase;
-        fn is_ascii_alphanumeric;
-        fn is_ascii_digit;
-        fn is_ascii_hexdigit;
-        fn is_ascii_punctuation;
-        fn is_ascii_graphic;
-        fn is_ascii_whitespace;
-        fn is_ascii_control;
-    }
-}

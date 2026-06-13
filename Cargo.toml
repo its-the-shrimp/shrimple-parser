@@ -1,13 +1,12 @@
 [package]
 name = "shrimple-parser"
 description = "Zero-dependency next-gen parsing combinator library with flexible error reporting"
-version = "0.0.13"
+version = "0.1.0"
 edition = "2021"
 license = "MIT"
 authors = ["Tim Kurdov <tim.kurdov@gmail.com>"]
-repository = "https://github.com/schvv31n/shrimple-parser"
-# TODO: add no-std
-categories = ["parsing"]
+repository = "https://github.com/its-the-shrimp/shrimple-parser"
+categories = ["parsing", "no-std"]
 keywords = ["parsing-combinator"]
 
 [package.metadata.docs.rs]

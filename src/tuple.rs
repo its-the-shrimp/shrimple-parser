@@ -347,6 +347,8 @@ impl_tuple_traits!(5 - 0: T0, 1: T1, 2: T2, 3: T3, 4: T4);
 impl_tuple_traits!(6 - 0: T0, 1: T1, 2: T2, 3: T3, 4: T4, 5: T5);
 impl_tuple_traits!(7 - 0: T0, 1: T1, 2: T2, 3: T3, 4: T4, 5: T5, 6: T6);
 impl_tuple_traits!(8 - 0: T0, 1: T1, 2: T2, 3: T3, 4: T4, 5: T5, 6: T6, 7: T7);
+impl_tuple_traits!(9 - 0: T0, 1: T1, 2: T2, 3: T3, 4: T4, 5: T5, 6: T6, 7: T7, 8: T8);
+impl_tuple_traits!(10 - 0: T0, 1: T1, 2: T2, 3: T3, 4: T4, 5: T5, 6: T6, 7: T7, 8: T8, 9: T9);
 
 #[rustfmt::skip]
 macro_rules! impl_nth_fn {
@@ -411,14 +413,14 @@ pub fn copied<T: CopiableRefs>(x: T) -> T::Copied {
 /// The struct fields must be exactly in the order in which they're expected to be in the tuple.
 /// ```rust
 /// # fn main() {
-/// use shrimple_parser::{Parser, pattern::parse_until_ex, from_tuple};
+/// use shrimple_parser::{Parser, parser::until_ex, from_tuple};
 ///
 /// #[derive(Debug, PartialEq, Eq)]
 /// struct Example<'src> { a: &'src str, b: &'src str }
 ///
 /// let input = "abc|def|";
-/// let res = parse_until_ex::<_, ()>("|")
-///     .and(parse_until_ex("|"))
+/// let res = until_ex::<_, ()>("|")
+///     .and(until_ex("|"))
 ///     .map_out(from_tuple!(Example { a, b }))
 ///     .parse(input);
 /// assert_eq!(res, Ok(("", Example { a: "abc", b: "def" })))
@@ -440,15 +442,15 @@ macro_rules! last {
 /// The input can be anything as long as the last token contains all the arguments parenthesized.
 /// ```rust
 /// # fn main() {
-/// use shrimple_parser::{Parser, pattern::parse_until_ex, call};
+/// use shrimple_parser::{Parser, parser::until_ex, call};
 ///
 /// fn len_sum(a: &str, b: &str) -> usize {
 ///     a.len() + b.len()
 /// }
 ///
 /// let input = "abc|def|";
-/// let res = parse_until_ex::<_, ()>("|")
-///     .and(parse_until_ex("|"))
+/// let res = until_ex::<_, ()>("|")
+///     .and(until_ex("|"))
 ///     .map_out(call!(len_sum(a, b)))
 ///     .parse(input);
 /// assert_eq!(res, Ok(("", 6)))

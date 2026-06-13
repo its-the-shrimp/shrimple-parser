@@ -1,12 +1,17 @@
-/// This trait represents input that can be parsed by a [Parser] and/or matched by a [Pattern]
+/// This trait represents input that can be parsed by a [Parser] and/or matched by a [Pattern].
 ///
-/// Its [`Default`] impl of the type should return a value that represents empty input, akin to an
-/// empty string, `""`
+/// An [`Input`] must be cheaply cloneable, which is why types like `Box<str>` or `String` don't
+/// implement this trait.
+///
+/// If you want to create an
+/// empty span of the input of a parser, better carve it out of the input to keep the pointer
+/// inside it. Even an empty string can provide info on its location in the source code.
+/// [`Input::start`] & [`Input::end`] methods will help you with that.
 ///
 /// [Parser]: crate::Parser
 /// [Pattern]: crate::pattern::Pattern
 pub trait Input:
-    Sized + Clone + core::fmt::Debug + Default + core::ops::Deref<Target = str>
+    Sized + Clone + core::fmt::Debug + core::ops::Deref<Target = str>
 {
     /// A generalisation of [`str::split_at`]
     #[must_use]
@@ -24,6 +29,17 @@ pub trait Input:
     #[must_use]
     fn after(self, index: usize) -> Self {
         self.split_at(index).1
+    }
+
+    /// Returns an empty string that points to the start of the input
+    fn start(self) -> Self {
+        self.before(0)
+    }
+    
+    /// Returns an empty string that points to the end of the input
+    fn end(self) -> Self {
+        let len = self.len();
+        self.after(len)
     }
 }
 
